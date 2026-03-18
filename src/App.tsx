@@ -44,10 +44,12 @@ function App() {
 
 Topic/Description: ${description}
 
-Return your response as a valid JSON object with exactly three properties:
-1. "marketingCopy" - Persuasive, engaging marketing copy (2-3 paragraphs) that highlights benefits, creates desire, and includes a compelling call-to-action
-2. "visualStrategy" - Detailed visual strategy recommendations including suggested imagery, colors, design motifs, mood, and overall aesthetic direction
-3. "targetAudience" - Specific recommendation for the ideal target audience including demographics, psychographics, pain points, and why they need this
+Return your response as a valid JSON object with exactly three properties, where each property value is a STRING:
+1. "marketingCopy" - A string containing persuasive, engaging marketing copy (2-3 paragraphs) that highlights benefits, creates desire, and includes a compelling call-to-action
+2. "visualStrategy" - A string containing detailed visual strategy recommendations including suggested imagery, colors, design motifs, mood, and overall aesthetic direction. Write this as flowing paragraphs, NOT as a nested object.
+3. "targetAudience" - A string containing specific recommendation for the ideal target audience including demographics, psychographics, pain points, and why they need this
+
+IMPORTANT: All three values must be plain text strings, not nested objects or arrays. Write the visual strategy as descriptive paragraphs.
 
 Make the content professional, actionable, and inspiring. Be specific and creative.`
 
