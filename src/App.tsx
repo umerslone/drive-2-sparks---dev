@@ -144,7 +144,6 @@ Make the content professional, actionable, and inspiring. Be specific and creati
         onOpenChange={setShowSaveDialog}
         onSave={handleSaveStrategy}
       />
-
       <AnimatePresence>
         {showComparison && (
           <ComparisonView
@@ -153,8 +152,7 @@ Make the content professional, actionable, and inspiring. Be specific and creati
           />
         )}
       </AnimatePresence>
-
-      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background relative overflow-hidden">
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background relative overflow-hidden font-sans">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,_oklch(0.65_0.22_240_/_0.08)_0%,_transparent_50%),radial-gradient(circle_at_70%_80%,_oklch(0.48_0.18_240_/_0.1)_0%,_transparent_50%)] pointer-events-none" />
         
         <div className="relative max-w-6xl mx-auto px-6 md:px-8 py-12 md:py-16">
@@ -354,7 +352,7 @@ Make the content professional, actionable, and inspiring. Be specific and creati
         </div>
       </div>
     </>
-  )
+  );
 }
 
 export default App
