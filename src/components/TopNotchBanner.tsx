@@ -1,0 +1,123 @@
+import { motion, AnimatePresence } from "framer-motion"
+import { UserProfile } from "@/types"
+import { Sparkle, X, CaretDown } from "@phosphor-icons/react"
+import { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+
+interface TopNotchBannerProps {
+  user: UserProfile
+  onExpand: () => void
+}
+
+export function TopNotchBanner({ user, onExpand }: TopNotchBannerProps) {
+  const [isVisible, setIsVisible] = useState(false)
+  const [isDismissed, setIsDismissed] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!isDismissed) {
+        setIsVisible(true)
+      }
+    }, 15000)
+
+    return () => clearTimeout(timer)
+  }, [isDismissed])
+
+  const handleExpand = () => {
+    setIsVisible(false)
+    setIsDismissed(true)
+    onExpand()
+  }
+
+  const handleDismiss = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setIsVisible(false)
+    setIsDismissed(true)
+  }
+
+  return (
+    <AnimatePresence>
+      {isVisible && !isDismissed && (
+        <motion.div
+          initial={{ y: -100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -100, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          className="fixed top-0 left-0 right-0 z-50 pointer-events-none"
+        >
+          <motion.div
+            initial={{ scaleY: 0 }}
+            animate={{ scaleY: 1 }}
+            transition={{ delay: 0.2, duration: 0.3 }}
+            className="origin-top"
+          >
+            <div 
+              onClick={handleExpand}
+              className="mx-auto max-w-4xl mt-4 bg-gradient-to-r from-primary via-accent to-primary p-[2px] rounded-2xl shadow-2xl cursor-pointer pointer-events-auto group"
+            >
+              <div className="bg-card rounded-2xl px-6 py-3 flex items-center justify-between gap-4 backdrop-blur-xl">
+                <div className="flex items-center gap-3">
+                  <motion.div
+                    animate={{ 
+                      rotate: [0, 360],
+                      scale: [1, 1.2, 1]
+                    }}
+                    transition={{ 
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
+                  >
+                    <Sparkle size={24} weight="duotone" className="text-primary" />
+                  </motion.div>
+                  
+                  <div className="flex flex-col">
+                    <p className="text-sm font-bold text-foreground">
+                      Welcome back, {user.fullName}!
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Click to view your dashboard summary
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <motion.div
+                    animate={{ y: [0, 3, 0] }}
+                    transition={{ 
+                      duration: 1.5,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
+                  >
+                    <CaretDown 
+                      size={20} 
+                      weight="bold" 
+                      className="text-primary group-hover:text-accent transition-colors"
+                    />
+                  </motion.div>
+                  
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-full hover:bg-destructive/10"
+                    onClick={handleDismiss}
+                  >
+                    <X size={16} weight="bold" className="text-muted-foreground hover:text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ delay: 0.5, duration: 1.5 }}
+              className="mx-auto max-w-4xl h-1 bg-gradient-to-r from-transparent via-primary to-transparent mt-2 origin-center"
+            />
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}

@@ -13,6 +13,7 @@ import { UserMenu } from "@/components/UserMenu"
 import { Dashboard } from "@/components/Dashboard"
 import { AdminDashboard } from "@/components/AdminDashboard"
 import { WelcomeBanner } from "@/components/WelcomeBanner"
+import { TopNotchBanner } from "@/components/TopNotchBanner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
@@ -57,6 +58,7 @@ function App() {
   const [result, setResult] = useState<MarketingResult | null>(null)
   const [currentDescription, setCurrentDescription] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [showExpandedWelcome, setShowExpandedWelcome] = useState(true)
   const [savedStrategies, setSavedStrategies] = useKV<SavedStrategy[]>(
     user ? `saved-strategies-${user.id}` : "saved-strategies-temp",
     []
@@ -441,6 +443,13 @@ FORMATTING GUIDELINES:
 
   return (
     <>
+      <TopNotchBanner 
+        user={user} 
+        onExpand={() => {
+          setShowExpandedWelcome(true)
+          window.scrollTo({ top: 0, behavior: "smooth" })
+        }}
+      />
       <SaveStrategyDialog
         open={showSaveDialog}
         onOpenChange={setShowSaveDialog}
@@ -481,7 +490,7 @@ FORMATTING GUIDELINES:
             </p>
           </motion.header>
 
-          <WelcomeBanner user={user} />
+          {showExpandedWelcome && <WelcomeBanner user={user} />}
 
           <Tabs defaultValue="generate" className="w-full">
             <TabsList className={`grid w-full max-w-2xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
