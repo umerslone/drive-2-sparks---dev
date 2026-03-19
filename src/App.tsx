@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck } from "@phosphor-icons/react"
+import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass } from "@phosphor-icons/react"
 import { ResultCard } from "@/components/ResultCard"
 import { LoadingState } from "@/components/LoadingState"
 import { EmptyState } from "@/components/EmptyState"
@@ -15,6 +15,7 @@ import { AdminDashboard } from "@/components/AdminDashboard"
 import { WelcomeBanner } from "@/components/WelcomeBanner"
 import { TopNotchBanner } from "@/components/TopNotchBanner"
 import { Footer } from "@/components/Footer"
+import { PlagiarismChecker } from "@/components/PlagiarismChecker"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
@@ -510,10 +511,14 @@ FORMATTING GUIDELINES:
           </AnimatePresence>
 
           <Tabs defaultValue="generate" className="w-full">
-            <TabsList className={`grid w-full max-w-2xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
+            <TabsList className={`grid w-full max-w-3xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-5" : "grid-cols-4"}`}>
               <TabsTrigger value="generate" className="gap-2">
                 <Lightbulb size={18} weight="bold" />
                 Generate
+              </TabsTrigger>
+              <TabsTrigger value="plagiarism" className="gap-2">
+                <MagnifyingGlass size={18} weight="bold" />
+                Review
               </TabsTrigger>
               <TabsTrigger value="dashboard" className="gap-2">
                 <ChartBar size={18} weight="bold" />
@@ -749,6 +754,10 @@ FORMATTING GUIDELINES:
                 
                 {!isLoading && !result && !error && <EmptyState />}
               </div>
+            </TabsContent>
+
+            <TabsContent value="plagiarism" className="space-y-6">
+              <PlagiarismChecker userId={user.id} />
             </TabsContent>
 
             <TabsContent value="dashboard" className="space-y-6">

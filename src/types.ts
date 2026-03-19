@@ -41,3 +41,46 @@ export interface AuthState {
   isAuthenticated: boolean
   user: UserProfile | null
 }
+
+export interface PlagiarismHighlight {
+  text: string
+  startIndex: number
+  endIndex: number
+  severity: "high" | "medium" | "low"
+  source?: string
+}
+
+export interface AIDetectionHighlight {
+  text: string
+  startIndex: number
+  endIndex: number
+  confidence: number
+}
+
+export interface PlagiarismResult {
+  overallScore: number
+  plagiarismPercentage: number
+  aiContentPercentage: number
+  highlights: PlagiarismHighlight[]
+  aiHighlights: AIDetectionHighlight[]
+  summary: string
+  recommendations: string[]
+  turnitinReady: boolean
+  validReferences: { reference: string; isValid: boolean; reason: string }[]
+  detectedSources: { source: string; similarity: number }[]
+}
+
+export interface DocumentReviewResult {
+  documentText: string
+  fileName: string
+  summary: string
+  plagiarismResult: PlagiarismResult
+  timestamp: number
+}
+
+export interface HumanizedResult {
+  originalText: string
+  humanizedText: string
+  changes: { original: string; humanized: string }[]
+  timestamp: number
+}
