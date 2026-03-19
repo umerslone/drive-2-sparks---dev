@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { UserProfile } from "@/types"
 import { UserCircle, SignOut, PencilSimple } from "@phosphor-icons/react"
 import { ProfileEdit } from "./ProfileEdit"
@@ -50,6 +50,7 @@ export function UserMenu({ user, onLogout, onProfileUpdate }: UserMenuProps) {
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-10 w-10 rounded-full">
             <Avatar className="h-10 w-10 border-2 border-primary/20">
+              {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.fullName} />}
               <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                 {getInitials(user.fullName)}
               </AvatarFallback>
@@ -61,10 +62,12 @@ export function UserMenu({ user, onLogout, onProfileUpdate }: UserMenuProps) {
             <div className="flex flex-col space-y-1">
               <p className="text-sm font-medium leading-none">{user.fullName}</p>
               <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+              <p className="text-xs leading-none text-muted-foreground mt-1">
+                Role: {user.role === "admin" ? "Administrator" : "Client"}
+              </p>
               {user.company && (
-                <p className="text-xs leading-none text-muted-foreground mt-1">
+                <p className="text-xs leading-none text-muted-foreground">
                   {user.company}
-                  {user.role && ` • ${user.role}`}
                 </p>
               )}
             </div>

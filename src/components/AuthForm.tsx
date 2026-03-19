@@ -1,9 +1,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
-import { UserPlus, SignIn, Sparkle } from "@phosphor-icons/react"
+import { Sparkle, GithubLogo } from "@phosphor-icons/react"
 import { motion } from "framer-motion"
 import { authService } from "@/lib/auth"
 import { toast } from "sonner"
@@ -14,29 +12,16 @@ interface AuthFormProps {
 }
 
 export function AuthForm({ onAuthSuccess }: AuthFormProps) {
-  const [isLogin, setIsLogin] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    fullName: "",
-  })
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleGitHubLogin = async () => {
     setIsLoading(true)
 
     try {
-      const result = isLogin
-        ? await authService.login({ email: formData.email, password: formData.password })
-        : await authService.register({
-            email: formData.email,
-            password: formData.password,
-            fullName: formData.fullName,
-          })
+      const result = await authService.loginWithGitHub()
 
       if (result.success && result.user) {
-        toast.success(isLogin ? "Welcome back!" : "Account created successfully!")
+        toast.success(`Welcome, ${result.user.fullName}!`)
         onAuthSuccess(result.user)
       } else {
         toast.error(result.error || "Authentication failed")
@@ -67,92 +52,40 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
             </h1>
           </div>
           <p className="text-muted-foreground">
-            {isLogin ? "Sign in to your account" : "Create your account"}
+            Sign in with your GitHub account
           </p>
         </div>
 
         <Card className="p-8 bg-card/80 backdrop-blur-sm border-border/50">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {!isLogin && (
-              <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name</Label>
-                <Input
-                  id="fullName"
-                  type="text"
-                  placeholder="John Doe"
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                  required={!isLogin}
-                  disabled={isLoading}
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
-                disabled={isLoading}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                required
-                disabled={isLoading}
-                minLength={6}
-              />
-              {!isLogin && (
-                <p className="text-xs text-muted-foreground">
-                  Password must be at least 6 characters
-                </p>
-              )}
+          <div className="space-y-6">
+            <div className="text-center space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Authenticate using GitHub to access the platform
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Spark admins will have administrator access. All other users will have client access.
+              </p>
             </div>
 
             <Button
-              type="submit"
+              onClick={handleGitHubLogin}
               className="w-full gap-2 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary"
               disabled={isLoading}
+              size="lg"
             >
               {isLoading ? (
-                "Please wait..."
-              ) : isLogin ? (
-                <>
-                  <SignIn size={20} weight="bold" />
-                  Sign In
-                </>
+                "Authenticating..."
               ) : (
                 <>
-                  <UserPlus size={20} weight="bold" />
-                  Create Account
+                  <GithubLogo size={24} weight="bold" />
+                  Sign in with GitHub
                 </>
               )}
             </Button>
-          </form>
 
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(!isLogin)
-                setFormData({ email: "", password: "", fullName: "" })
-              }}
-              className="text-sm text-primary hover:underline"
-              disabled={isLoading}
-            >
-              {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
-            </button>
+            <div className="text-center text-xs text-muted-foreground">
+              <p>By signing in, you agree to our terms of service</p>
+            </div>
           </div>
         </Card>
       </motion.div>
