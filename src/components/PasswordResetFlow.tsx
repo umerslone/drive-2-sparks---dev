@@ -1,34 +1,34 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Input } from "@/components/ui/inpu
+import { Envelope, LockKey, ArrowLeft, CheckC
 import { Label } from "@/components/ui/label"
 import { Envelope, LockKey, ArrowLeft, CheckCircle } from "@phosphor-icons/react"
 import { motion, AnimatePresence } from "framer-motion"
 import { authService } from "@/lib/auth"
-import { toast } from "sonner"
-
-interface PasswordResetFlowProps {
   onBack: () => void
-}
 
-type ResetStep = "request" | "verify" | "reset" | "success"
 
-export function PasswordResetFlow({ onBack }: PasswordResetFlowProps) {
-  const [currentStep, setCurrentStep] = useState<ResetStep>("request")
-  const [isLoading, setIsLoading] = useState(false)
-  const [email, setEmail] = useState("")
-  const [resetCode, setResetCode] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
+  const [currentStep
+ 
 
-  const handleRequestReset = async (e: React.FormEvent) => {
-    e.preventDefault()
+
 
     if (!email) {
-      toast.error("Please enter your email address")
       return
-    }
+
+
+      const result = await authService.requestPa
+      if (result.success) {
+        setCurrentStep("verify")
+
+    } catch (error) {
+      console.error("R
+
+  }
+  const handleVerifyCode = async (e: React.FormEvent
+
+     
 
     setIsLoading(true)
 
@@ -382,8 +382,8 @@ export function PasswordResetFlow({ onBack }: PasswordResetFlowProps) {
               </Card>
             </motion.div>
           )}
-        </AnimatePresence>
-      </motion.div>
-    </div>
-  )
-}
+
+
+
+
+
