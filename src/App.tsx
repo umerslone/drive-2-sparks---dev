@@ -181,26 +181,31 @@ ${feedPrompt}
 
 Use both databases as a quality bar and adapt to the user's domain.
 
-CRITICAL: You MUST return ONLY a valid JSON object. Do not include any text before or after the JSON. The JSON must have exactly these eight properties:
+CRITICAL JSON FORMATTING RULES:
+1. Return ONLY a valid JSON object with no markdown, no code blocks, no text before or after
+2. All string values must properly escape special characters: use \\" for quotes, \\\\ for backslashes, \\n for newlines
+3. Do NOT use unescaped quotes, line breaks, or special characters inside string values
+4. Keep all content within string values - no nested objects or arrays
+5. Test that your output is valid JSON before returning
+
+Required JSON structure with exactly these eight properties:
 
 {
-  "marketingCopy": "Persuasive, engaging marketing copy (2-3 paragraphs) that highlights benefits, creates desire, and includes a compelling call-to-action",
-  "visualStrategy": "Detailed visual strategy recommendations including suggested imagery, colors, design motifs, mood, and overall aesthetic direction. Write this as flowing paragraphs.",
-  "targetAudience": "Specific recommendation for the ideal target audience including demographics, psychographics, pain points, and why they need this",
-  "applicationWorkflow": "Practical application implementation workflow (architecture, key modules, API/service flow, phased build plan)",
-  "uiWorkflow": "Step-by-step UI implementation guidance (screens/components, design system setup, interaction patterns, accessibility)",
-  "databaseWorkflow": "Database implementation guidance (schema entities, relationships, migration approach, indexing, security/data validation)",
-  "mobileWorkflow": "Mobile app implementation guidance (cross-platform approach, navigation, offline/state strategy, release milestones, push/notification considerations)",
-  "implementationChecklist": "Compact sprint-ready checklist with clear tasks grouped by phases (MVP setup, build, test, launch). Keep it concise and actionable."
+  "marketingCopy": "Persuasive, engaging marketing copy (2-3 paragraphs) that highlights benefits, creates desire, and includes a compelling call-to-action. Use simple formatting only.",
+  "visualStrategy": "Detailed visual strategy recommendations including suggested imagery, colors, design motifs, mood, and overall aesthetic direction. Write as flowing paragraphs with simple formatting.",
+  "targetAudience": "Specific recommendation for the ideal target audience including demographics, psychographics, pain points, and why they need this. Use simple text formatting.",
+  "applicationWorkflow": "Practical application implementation workflow (architecture, key modules, API/service flow, phased build plan). Use simple bullet-like formatting with hyphens, not complex markdown.",
+  "uiWorkflow": "Step-by-step UI implementation guidance (screens/components, design system setup, interaction patterns, accessibility). Use simple formatting.",
+  "databaseWorkflow": "Database implementation guidance (schema entities, relationships, migration approach, indexing, security/data validation). Use simple formatting.",
+  "mobileWorkflow": "Mobile app implementation guidance (cross-platform approach, navigation, offline/state strategy, release milestones, push/notification considerations). Use simple formatting.",
+  "implementationChecklist": "Compact sprint-ready checklist with clear tasks grouped by phases (MVP setup, build, test, launch). Keep it concise and actionable with simple formatting."
 }
 
-IMPORTANT:
-- All eight values must be plain text strings, not nested objects or arrays
-- Keep each section actionable and implementation-focused
-- Use concise headings and bullet-like formatting inside each string where helpful
-- Include concrete system-thinking details where relevant
-- For workflows, provide phased guidance that a team can execute directly
-- Make the content professional, actionable, and inspiring. Be specific and creative.`
+FORMATTING GUIDELINES:
+- Use simple text formatting: hyphens for bullets, line breaks for separation
+- Avoid complex markdown, code blocks, or special symbols
+- Keep content professional, actionable, and inspiring
+- Be specific and creative while maintaining valid JSON structure`
 
       if (typeof spark.llm !== "function") {
         throw new Error("Spark LLM function is not available.")
@@ -214,19 +219,32 @@ IMPORTANT:
 
       let parsedResult: MarketingResult
       try {
-        const cleanedResponse = response.trim()
+        let cleanedResponse = response.trim()
+        
+        if (cleanedResponse.startsWith("```json")) {
+          cleanedResponse = cleanedResponse.replace(/^```json\s*/, "").replace(/```\s*$/, "")
+        } else if (cleanedResponse.startsWith("```")) {
+          cleanedResponse = cleanedResponse.replace(/^```\s*/, "").replace(/```\s*$/, "")
+        }
+        
+        cleanedResponse = cleanedResponse.trim()
+        
         console.log("Raw LLM response length:", cleanedResponse.length)
         console.log("First 200 chars:", cleanedResponse.substring(0, 200))
+        console.log("Last 200 chars:", cleanedResponse.substring(Math.max(0, cleanedResponse.length - 200)))
         
         parsedResult = JSON.parse(cleanedResponse) as MarketingResult
         
         console.log("Successfully parsed result with keys:", Object.keys(parsedResult))
       } catch (parseError) {
         console.error("JSON Parse Error:", parseError)
-        console.error("Raw response:", response)
+        console.error("Raw response length:", response.length)
         console.error("Response type:", typeof response)
         
-        throw new Error(`Failed to parse response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}. Please try again.`)
+        const errorMsg = parseError instanceof Error ? parseError.message : 'Unknown error'
+        toast.error("The AI response couldn't be parsed. Trying again with a simpler format...")
+        
+        throw new Error(`Failed to parse response: ${errorMsg}. The AI may have included invalid characters in the response. Please try generating again.`)
       }
 
       if (!parsedResult || typeof parsedResult !== 'object') {
