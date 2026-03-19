@@ -1,37 +1,25 @@
 import { motion, AnimatePresence } from "framer-motion"
 import { UserProfile } from "@/types"
 import { Sparkle, X, CaretDown } from "@phosphor-icons/react"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 
 interface TopNotchBannerProps {
   user: UserProfile
   onExpand: () => void
+  isVisible: boolean
 }
 
-export function TopNotchBanner({ user, onExpand }: TopNotchBannerProps) {
-  const [isVisible, setIsVisible] = useState(false)
+export function TopNotchBanner({ user, onExpand, isVisible }: TopNotchBannerProps) {
   const [isDismissed, setIsDismissed] = useState(false)
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!isDismissed) {
-        setIsVisible(true)
-      }
-    }, 15000)
-
-    return () => clearTimeout(timer)
-  }, [isDismissed])
-
   const handleExpand = () => {
-    setIsVisible(false)
     setIsDismissed(true)
     onExpand()
   }
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setIsVisible(false)
     setIsDismissed(true)
   }
 

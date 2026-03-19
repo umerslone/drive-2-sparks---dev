@@ -49,6 +49,7 @@ export function WelcomeBanner({ user }: WelcomeBannerProps) {
     <motion.div
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -30, scale: 0.95 }}
       transition={{ duration: 0.6, ease: "easeOut" }}
       className="relative overflow-hidden bg-gradient-to-r from-primary/10 via-accent/10 to-primary/10 border border-primary/20 rounded-2xl p-6 md:p-8 mb-8"
     >

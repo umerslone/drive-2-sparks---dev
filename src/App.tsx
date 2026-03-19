@@ -59,6 +59,7 @@ function App() {
   const [currentDescription, setCurrentDescription] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [showExpandedWelcome, setShowExpandedWelcome] = useState(true)
+  const [shouldShowTopNotch, setShouldShowTopNotch] = useState(false)
   const [savedStrategies, setSavedStrategies] = useKV<SavedStrategy[]>(
     user ? `saved-strategies-${user.id}` : "saved-strategies-temp",
     []
@@ -85,6 +86,17 @@ function App() {
     }
     checkAuth()
   }, [])
+
+  useEffect(() => {
+    if (showExpandedWelcome) {
+      const timer = setTimeout(() => {
+        setShowExpandedWelcome(false)
+        setShouldShowTopNotch(true)
+      }, 15000)
+
+      return () => clearTimeout(timer)
+    }
+  }, [showExpandedWelcome])
 
   const isValidInput = description.trim().length >= 10
   const charCount = description.length
@@ -445,8 +457,10 @@ FORMATTING GUIDELINES:
     <>
       <TopNotchBanner 
         user={user} 
+        isVisible={shouldShowTopNotch}
         onExpand={() => {
           setShowExpandedWelcome(true)
+          setShouldShowTopNotch(false)
           window.scrollTo({ top: 0, behavior: "smooth" })
         }}
       />
@@ -490,7 +504,9 @@ FORMATTING GUIDELINES:
             </p>
           </motion.header>
 
-          {showExpandedWelcome && <WelcomeBanner user={user} />}
+          <AnimatePresence>
+            {showExpandedWelcome && <WelcomeBanner user={user} />}
+          </AnimatePresence>
 
           <Tabs defaultValue="generate" className="w-full">
             <TabsList className={`grid w-full max-w-2xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
