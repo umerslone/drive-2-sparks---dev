@@ -1,14 +1,41 @@
 import { motion } from "framer-motion"
 import { UserProfile } from "@/types"
-import { Sparkle, Crown, User } from "@phosphor-icons/react"
+import { Sparkle, Crown, User, Clock } from "@phosphor-icons/react"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { useState, useEffect, useRef } from "react"
 
 interface WelcomeBannerProps {
   user: UserProfile
 }
 
 export function WelcomeBanner({ user }: WelcomeBannerProps) {
+  const [sessionDuration, setSessionDuration] = useState(0)
+  const sessionStartRef = useRef(Date.now())
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - sessionStartRef.current) / 1000)
+      setSessionDuration(elapsed)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${secs}s`
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`
+    } else {
+      return `${secs}s`
+    }
+  }
+
   const getGreeting = () => {
     const hour = new Date().getHours()
     if (hour < 12) return "Good Morning"
@@ -59,11 +86,21 @@ export function WelcomeBanner({ user }: WelcomeBannerProps) {
           </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          <Sparkle size={32} weight="duotone" className="text-primary animate-pulse" />
-          <div className="text-right">
-            <p className="text-sm font-medium text-muted-foreground">Authentication Status</p>
-            <p className="text-lg font-bold text-primary">Connected</p>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <Sparkle size={32} weight="duotone" className="text-primary animate-pulse" />
+            <div className="text-right">
+              <p className="text-sm font-medium text-muted-foreground">Authentication Status</p>
+              <p className="text-lg font-bold text-primary">Connected</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Clock size={32} weight="duotone" className="text-accent" />
+            <div className="text-right">
+              <p className="text-sm font-medium text-muted-foreground">Session Duration</p>
+              <p className="text-lg font-bold text-accent tabular-nums">{formatDuration(sessionDuration)}</p>
+            </div>
           </div>
         </div>
       </div>
