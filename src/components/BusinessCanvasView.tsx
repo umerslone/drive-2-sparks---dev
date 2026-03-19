@@ -1,10 +1,17 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { DownloadSimple, FilePdf } from "@phosphor-icons/react"
+import { DownloadSimple, FilePdf, FileDoc } from "@phosphor-icons/react"
 import { motion } from "framer-motion"
 import { BusinessCanvasModel } from "@/types"
 import { toast } from "sonner"
 import { jsPDF } from "jspdf"
+import { exportCanvasAsWord } from "@/lib/document-export"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface BusinessCanvasViewProps {
   canvas: BusinessCanvasModel
@@ -12,6 +19,16 @@ interface BusinessCanvasViewProps {
 }
 
 export function BusinessCanvasView({ canvas, ideaName }: BusinessCanvasViewProps) {
+  const handleExportWord = async () => {
+    try {
+      await exportCanvasAsWord(canvas, ideaName)
+      toast.success("Business Canvas exported to Word successfully!")
+    } catch (error) {
+      console.error("Error exporting Word:", error)
+      toast.error("Failed to export to Word. Please try again.")
+    }
+  }
+
   const handleExportPDF = () => {
     try {
       const doc = new jsPDF({
@@ -148,10 +165,24 @@ export function BusinessCanvasView({ canvas, ideaName }: BusinessCanvasViewProps
     >
       <div className="flex items-center justify-between">
         <h3 className="text-2xl font-bold text-foreground">Business Model Canvas</h3>
-        <Button onClick={handleExportPDF} size="sm" variant="default" className="gap-2">
-          <FilePdf weight="bold" size={16} />
-          Export to PDF
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="default" className="gap-2">
+              <DownloadSimple weight="bold" size={16} />
+              Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleExportPDF} className="gap-2 cursor-pointer">
+              <FilePdf weight="bold" size={16} />
+              Export as PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExportWord} className="gap-2 cursor-pointer">
+              <FileDoc weight="bold" size={16} />
+              Export as Word
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">

@@ -2,11 +2,18 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { FilePdf, CaretLeft, CaretRight } from "@phosphor-icons/react"
+import { FilePdf, FileDoc, CaretLeft, CaretRight, DownloadSimple } from "@phosphor-icons/react"
 import { motion, AnimatePresence } from "framer-motion"
 import { PitchDeck } from "@/types"
 import { toast } from "sonner"
 import { jsPDF } from "jspdf"
+import { exportPitchDeckAsWord } from "@/lib/document-export"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface PitchDeckViewProps {
   pitchDeck: PitchDeck
@@ -15,6 +22,16 @@ interface PitchDeckViewProps {
 
 export function PitchDeckView({ pitchDeck, ideaName }: PitchDeckViewProps) {
   const [currentSlide, setCurrentSlide] = useState(0)
+
+  const handleExportWord = async () => {
+    try {
+      await exportPitchDeckAsWord(pitchDeck, ideaName)
+      toast.success("Pitch Deck exported to Word successfully!")
+    } catch (error) {
+      console.error("Error exporting Word:", error)
+      toast.error("Failed to export to Word. Please try again.")
+    }
+  }
 
   const handleExportPDF = () => {
     try {
@@ -192,10 +209,24 @@ export function PitchDeckView({ pitchDeck, ideaName }: PitchDeckViewProps) {
             {pitchDeck.slides.length} slides ready for your presentation
           </p>
         </div>
-        <Button onClick={handleExportPDF} size="sm" variant="default" className="gap-2">
-          <FilePdf weight="bold" size={16} />
-          Export to PDF
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="default" className="gap-2">
+              <DownloadSimple weight="bold" size={16} />
+              Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleExportPDF} className="gap-2 cursor-pointer">
+              <FilePdf weight="bold" size={16} />
+              Export as PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExportWord} className="gap-2 cursor-pointer">
+              <FileDoc weight="bold" size={16} />
+              Export as Word
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <Card className="p-6 bg-gradient-to-br from-primary/5 to-accent/5 border-primary/20">

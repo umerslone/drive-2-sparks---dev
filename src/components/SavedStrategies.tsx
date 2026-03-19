@@ -1,10 +1,18 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { FloppyDisk, Trash, Eye, Scales, FilePdf } from "@phosphor-icons/react"
+import { FloppyDisk, Trash, Eye, Scales, FilePdf, FileDoc, DownloadSimple } from "@phosphor-icons/react"
 import { motion } from "framer-motion"
 import { SavedStrategy } from "@/types"
 import { exportStrategyAsPDF } from "@/lib/pdf-export"
+import { exportStrategyAsWord } from "@/lib/document-export"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { toast } from "sonner"
 
 interface SavedStrategiesProps {
   strategies: SavedStrategy[]
@@ -76,15 +84,42 @@ export function SavedStrategies({
                       <Eye size={16} weight="bold" />
                       View
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => exportStrategyAsPDF(strategy)}
-                      className="gap-1.5"
-                    >
-                      <FilePdf size={16} weight="bold" />
-                      Export PDF
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                        >
+                          <DownloadSimple size={16} weight="bold" />
+                          Export
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem 
+                          onClick={() => exportStrategyAsPDF(strategy)} 
+                          className="gap-2 cursor-pointer"
+                        >
+                          <FilePdf size={16} weight="bold" />
+                          Export as PDF
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={async () => {
+                            try {
+                              await exportStrategyAsWord(strategy)
+                              toast.success("Strategy exported to Word successfully!")
+                            } catch (error) {
+                              console.error("Error exporting Word:", error)
+                              toast.error("Failed to export to Word. Please try again.")
+                            }
+                          }} 
+                          className="gap-2 cursor-pointer"
+                        >
+                          <FileDoc size={16} weight="bold" />
+                          Export as Word
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       variant={isSelected ? "default" : "outline"}
                       size="sm"
