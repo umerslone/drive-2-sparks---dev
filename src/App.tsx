@@ -8,12 +8,15 @@ import { EmptyState } from "@/components/EmptyState"
 import { SavedStrategies } from "@/components/SavedStrategies"
 import { ComparisonView } from "@/components/ComparisonView"
 import { SaveStrategyDialog } from "@/components/SaveStrategyDialog"
+import { AuthForm } from "@/components/AuthForm"
+import { UserMenu } from "@/components/UserMenu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { useKV } from "@github/spark/hooks"
 import { motion, AnimatePresence } from "framer-motion"
-import { MarketingResult, SavedStrategy } from "@/types"
+import { MarketingResult, SavedStrategy, UserProfile } from "@/types"
+import { authService } from "@/lib/auth"
 import {
   DEFAULT_KNOWLEDGEBASE_CONCEPTS,
   DEFAULT_KNOWLEDGE_FEED_ITEMS,
@@ -44,13 +47,21 @@ const CONCEPT_MODE_INSTRUCTION: Record<ConceptMode, string> = {
 }
 
 function App() {
+  const [user, setUser] = useState<UserProfile | null>(null)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [description, setDescription] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<MarketingResult | null>(null)
   const [currentDescription, setCurrentDescription] = useState("")
   const [error, setError] = useState<string | null>(null)
-  const [savedStrategies, setSavedStrategies] = useKV<SavedStrategy[]>("saved-strategies", [])
-  const [promptMemory, setPromptMemory] = useKV<PromptMemoryItem[]>("user-prompt-memory", [])
+  const [savedStrategies, setSavedStrategies] = useKV<SavedStrategy[]>(
+    user ? `saved-strategies-${user.id}` : "saved-strategies-temp",
+    []
+  )
+  const [promptMemory, setPromptMemory] = useKV<PromptMemoryItem[]>(
+    user ? `user-prompt-memory-${user.id}` : "user-prompt-memory-temp",
+    []
+  )
   const [knowledgebaseConcepts, setKnowledgebaseConcepts] = useKV<KnowledgebaseConcept[]>("knowledgebase-concepts", [])
   const [knowledgeFeed, setKnowledgeFeed] = useKV<KnowledgeFeedItem[]>("knowledge-feed", [])
   const [selectedForComparison, setSelectedForComparison] = useState<string[]>([])
@@ -59,6 +70,15 @@ function App() {
   const [conceptMode, setConceptMode] = useState<ConceptMode>("auto")
   const [showPromptSuggestions, setShowPromptSuggestions] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const currentUser = await authService.getCurrentUser()
+      setUser(currentUser)
+      setIsCheckingAuth(false)
+    }
+    checkAuth()
+  }, [])
 
   const isValidInput = description.trim().length >= 10
   const charCount = description.length
@@ -384,6 +404,37 @@ FORMATTING GUIDELINES:
     }
   }
 
+  const handleAuthSuccess = (authUser: UserProfile) => {
+    setUser(authUser)
+  }
+
+  const handleLogout = () => {
+    setUser(null)
+    setDescription("")
+    setResult(null)
+    setCurrentDescription("")
+    setError(null)
+  }
+
+  const handleProfileUpdate = (updatedUser: UserProfile) => {
+    setUser(updatedUser)
+  }
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background flex items-center justify-center">
+        <div className="text-center">
+          <Sparkle size={48} weight="duotone" className="text-primary animate-pulse mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <AuthForm onAuthSuccess={handleAuthSuccess} />
+  }
+
   return (
     <>
       <SaveStrategyDialog
@@ -407,18 +458,21 @@ FORMATTING GUIDELINES:
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="text-center mb-12"
+            className="mb-12"
           >
-            <div className="inline-flex items-center gap-3 mb-4">
-              <Sparkle size={40} weight="duotone" className="text-primary" />
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
-                AI-Powered TechPigeon Assistant
-              </h1>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Sparkle size={40} weight="duotone" className="text-primary" />
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
+                  AI-Powered TechPigeon Assistant
+                </h1>
+              </div>
+              <UserMenu user={user} onLogout={handleLogout} onProfileUpdate={handleProfileUpdate} />
             </div>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
+            <p className="text-muted-foreground text-lg max-w-2xl leading-relaxed text-center md:text-left">
               Pakistan's leading AI platform for intelligent marketing strategies and business insights
             </p>
-            <p className="text-sm text-muted-foreground mt-2">
+            <p className="text-sm text-muted-foreground mt-2 text-center md:text-left">
               Powered by <a href="https://www.techpigeon.org" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">TechPigeon</a>
             </p>
           </motion.header>

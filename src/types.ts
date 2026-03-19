@@ -16,3 +16,26 @@ export interface SavedStrategy {
   result: MarketingResult
   timestamp: number
 }
+
+export interface UserProfile {
+  id: string
+  email: string
+  fullName: string
+  company?: string
+  role?: string
+  industry?: string
+  bio?: string
+  avatarUrl?: string
+  createdAt: number
+  lastLoginAt: number
+}
+
+export interface UserCredentials {
+  email: string
+  password: string
+}
+
+export interface AuthState {
+  isAuthenticated: boolean
+  user: UserProfile | null
+}

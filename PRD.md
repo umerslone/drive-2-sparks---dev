@@ -1,16 +1,37 @@
 # AI Marketing Assistant - Powered by Techpigeon
 
-A versatile AI-powered marketing assistant that transforms any topic, product, or service description into comprehensive marketing strategies complete with persuasive copy, visual direction, and audience insights.
+A versatile AI-powered marketing assistant with user authentication and profile management that transforms any topic, product, or service description into comprehensive marketing strategies complete with persuasive copy, visual direction, and audience insights.
 
 **Experience Qualities**:
-1. **Empowering** - Users feel like they have a professional marketing team at their fingertips, transforming simple ideas into polished strategies.
-2. **Fluid** - The experience flows seamlessly from input to insight, with smooth transitions and clear visual hierarchy that guides attention naturally.
-3. **Versatile** - The assistant adapts to any topic or industry, making it a universal tool for marketing strategy generation.
+1. **Empowering** - Users feel like they have a professional marketing team at their fingertips, with their own personalized workspace and saved history.
+2. **Fluid** - The experience flows seamlessly from login to insight, with smooth transitions and clear visual hierarchy that guides attention naturally.
+3. **Versatile** - The assistant adapts to any topic or industry, with user-specific data storage making it a universal tool for marketing strategy generation.
 
 **Complexity Level**: Light Application (multiple features with basic state)
-This is a focused tool with clear input-output flow, persistent state management for saved strategies, and straightforward user interactions including comparison and export capabilities.
+This is a focused tool with clear input-output flow, user authentication, profile management, persistent state management for saved strategies, and straightforward user interactions including comparison and export capabilities.
 
 ## Essential Features
+
+### User Registration & Login
+- **Functionality**: Allows users to create accounts with email/password and log in to access their personalized workspace
+- **Purpose**: Provides secure access control and enables user-specific data storage for strategies and preferences
+- **Trigger**: User visits the platform without being logged in
+- **Progression**: User sees login screen → Chooses to sign in or create account → Enters credentials (email, password, full name for signup) → System authenticates → User gains access to dashboard
+- **Success criteria**: Users can successfully create accounts, log in, and their sessions persist across page refreshes
+
+### User Profile Management
+- **Functionality**: Users can view and edit their profile information including name, company, role, industry, and bio
+- **Purpose**: Enables users to maintain up-to-date professional information and personalize their experience
+- **Trigger**: User clicks on their avatar/profile menu in the header
+- **Progression**: User clicks avatar → Dropdown menu appears → User selects "Edit Profile" → Profile dialog opens with editable fields → User updates information → Clicks save → Profile updates and dialog closes
+- **Success criteria**: Profile changes persist and are reflected throughout the application
+
+### User-Specific Data Storage
+- **Functionality**: All saved strategies and user preferences are stored per-user, ensuring data privacy and organization
+- **Purpose**: Keeps each user's work separate and organized, building a personal library of marketing strategies
+- **Trigger**: Automatically activated when user logs in
+- **Progression**: User logs in → System loads user-specific strategies and preferences → User creates/saves strategies → Data is associated with their account → User can access only their own data
+- **Success criteria**: Users see only their own saved strategies, and data persists across sessions
 
 ### AI Marketing Generation (Universal)
 - **Functionality**: Accepts any topic, product, or service description and generates three marketing components: persuasive copy, visual strategy, and target audience recommendation
