@@ -1,0 +1,79 @@
+import { motion } from "framer-motion"
+import { UserProfile } from "@/types"
+import { Sparkle, Crown, User } from "@phosphor-icons/react"
+import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+
+interface WelcomeBannerProps {
+  user: UserProfile
+}
+
+export function WelcomeBanner({ user }: WelcomeBannerProps) {
+  const getGreeting = () => {
+    const hour = new Date().getHours()
+    if (hour < 12) return "Good Morning"
+    if (hour < 18) return "Good Afternoon"
+    return "Good Evening"
+  }
+
+  const isAdmin = user.role === "admin"
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, ease: "easeOut" }}
+      className="relative overflow-hidden bg-gradient-to-r from-primary/10 via-accent/10 to-primary/10 border border-primary/20 rounded-2xl p-6 md:p-8 mb-8"
+    >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,_oklch(0.65_0.22_240_/_0.15)_0%,_transparent_50%)] pointer-events-none" />
+      
+      <div className="relative flex items-center justify-between gap-6 flex-wrap">
+        <div className="flex items-center gap-4">
+          <Avatar className="h-16 w-16 border-2 border-primary/30 shadow-lg">
+            <AvatarImage src={user.avatarUrl} alt={user.fullName} />
+            <AvatarFallback className="bg-primary/20 text-primary text-xl font-bold">
+              {user.fullName.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl md:text-3xl font-bold text-foreground">
+                {getGreeting()}, {user.fullName}!
+              </h2>
+              {isAdmin && (
+                <Crown size={24} weight="fill" className="text-primary animate-pulse" />
+              )}
+            </div>
+            
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant={isAdmin ? "default" : "secondary"} className="gap-1.5">
+                {isAdmin ? <Crown size={14} weight="bold" /> : <User size={14} weight="bold" />}
+                {isAdmin ? "Administrator" : "Client"}
+              </Badge>
+              
+              <span className="text-sm text-muted-foreground">
+                {user.email}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <Sparkle size={32} weight="duotone" className="text-primary animate-pulse" />
+          <div className="text-right">
+            <p className="text-sm font-medium text-muted-foreground">Authentication Status</p>
+            <p className="text-lg font-bold text-primary">Connected</p>
+          </div>
+        </div>
+      </div>
+      
+      <motion.div
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: 1 }}
+        transition={{ duration: 0.8, delay: 0.2 }}
+        className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-accent to-primary origin-left"
+      />
+    </motion.div>
+  )
+}

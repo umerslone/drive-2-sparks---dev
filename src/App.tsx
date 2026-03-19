@@ -12,6 +12,7 @@ import { AuthForm } from "@/components/AuthForm"
 import { UserMenu } from "@/components/UserMenu"
 import { Dashboard } from "@/components/Dashboard"
 import { AdminDashboard } from "@/components/AdminDashboard"
+import { WelcomeBanner } from "@/components/WelcomeBanner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
@@ -461,7 +462,7 @@ FORMATTING GUIDELINES:
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="mb-12"
+            className="mb-6"
           >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -479,6 +480,8 @@ FORMATTING GUIDELINES:
               Powered by <a href="https://www.techpigeon.org" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">TechPigeon</a>
             </p>
           </motion.header>
+
+          <WelcomeBanner user={user} />
 
           <Tabs defaultValue="generate" className="w-full">
             <TabsList className={`grid w-full max-w-2xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
