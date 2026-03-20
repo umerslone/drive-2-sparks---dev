@@ -168,3 +168,91 @@ Animations should feel professional and polished - smooth, confident, and purpos
   - Strategy cards maintain single column layout
   - Comparison view adapts to single column on mobile
   - PDF export works via system print dialog
+
+## Review Section - Fast Track Feature Conversion
+
+### Product Goal
+- Enable thesis/article upload and produce a complete integrity report with:
+- Structured summary (abstract + section summaries)
+- Plagiarism similarity score with matched sources
+- AI-writing detection score with explainable evidence
+- Actionable recommendations for revision and citation quality
+
+### Scope for Fast Delivery (Days, not Weeks)
+
+#### Day 1
+- File ingestion pipeline for `pdf`, `docx`, `txt`
+- Text extraction and section splitting (abstract, intro, method, results, discussion, conclusion, references)
+- Basic summary output (overall + section-level)
+
+#### Day 2
+- Plagiarism engine v1 with exact overlap matching
+- Sentence and n-gram fingerprinting (`5-8` word shingles)
+- Source checks against free/open resources
+- Highlighted matched spans in document view
+
+#### Day 3
+- AI detection engine v1 (ensemble)
+- Stylometric features (burstiness, sentence length variance, punctuation rhythm)
+- Perplexity-based signal (model-likelihood anomaly)
+- Section-level risk scoring and confidence band
+
+#### Day 4
+- Turnitin-like controls:
+- Exclude bibliography
+- Exclude quoted text
+- Ignore short matches below threshold
+- Count each matched word once across sources
+- Final scoring panel and downloadable report
+
+#### Day 5 (optional hardening day)
+- Calibration against known samples
+- Threshold tuning to reduce false positives
+- UI polish and edge-case fixes
+
+### Turnitin-Style Matching Logic (Closest Practical Approximation)
+- Exact Turnitin parity is not possible due to proprietary corpus and scoring internals.
+- Implement the closest transparent equivalent:
+- Similarity index based on merged overlap spans
+- Source-level contribution percentages
+- Exclusion toggles (quotes/references/small matches)
+- One-pass de-duplication so repeated evidence does not inflate score
+
+### Deep Algorithm Design
+
+#### Plagiarism Detection
+- Preprocessing: normalize, tokenize, sentence segment, citation parse
+- Candidate retrieval: MinHash + Locality Sensitive Hashing for speed
+- Exact matching: n-gram overlap and longest common subsequence windows
+- Paraphrase matching: embedding similarity with thresholded semantic nearest neighbors
+- Evidence aggregation: merge adjacent spans and compute net unique overlap
+
+#### AI Detection
+- Stylometry classifier over lexical/syntactic features
+- Perplexity + rank consistency analysis
+- Section-level anomaly detector for abrupt style shifts
+- Weighted ensemble output with confidence calibration
+
+### Recommended Free/Open Resources
+- Crossref API for scholarly metadata and references
+- OpenAlex API for paper graph and source enrichment
+- Semantic Scholar API for related publications
+- arXiv metadata/full text where available
+- Open web search APIs with free tier (for additional source discovery)
+
+### Scoring Model
+- Similarity Score (0-100): exact + semantic overlap after exclusions
+- AI Risk Score (0-100): calibrated ensemble confidence
+- Citation Quality Score (0-100): reference consistency and in-text citation checks
+- Integrity Score (0-100): composite score exposed with transparent formula and reason codes
+
+### Delivery Artifacts
+- Review dashboard with section navigator and highlighted evidence
+- Source panel showing matched references and overlap percent
+- Exportable report with executive summary, detailed findings, and recommendations
+- Admin-adjustable thresholds for institutions with stricter policies
+
+### Non-Goals for Fast Track
+- Full closed-corpus parity with commercial plagiarism databases
+- Language coverage beyond primary supported language on first release
+- Human adjudication workflow in v1

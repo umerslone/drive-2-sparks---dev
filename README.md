@@ -49,6 +49,25 @@ This app is branded with **TechPigeon's** official color palette:
 
 For Spark Template Resources: MIT License - Copyright GitHub, Inc.
 
+## 🧭 Fast-Track Review Roadmap
+
+This project is moving with a compressed timeline (days, not weeks).
+
+### Phase A (Core in Days)
+- Day 1: Thesis/article file ingestion + section parsing + structured summary
+- Day 2: Plagiarism detection v1 (exact overlap + source matches)
+- Day 3: AI detection v1 (stylometry + perplexity signals)
+- Day 4: Turnitin-style controls (exclude references/quotes/short matches) + final scoring panel
+
+### Phase B (Hardening)
+- Threshold calibration against benchmark documents
+- False-positive reduction for properly cited text
+- Report export improvements and evidence explainability
+
+## 📓 Development Log
+
+Track implementation progress in [CHANGELOG.md](CHANGELOG.md).
+
 ---
 
 **Powered by TechPigeon** | Pakistan's Leading AI & IT Training Platform

@@ -1,0 +1,274 @@
+import { PlagiarismResult } from "@/types"
+
+export interface ReviewComputationMeta {
+  integrityScore: number
+  confidenceLabel: "low" | "medium" | "high"
+  confidenceReasons: string[]
+  likelyTurnitinRange: {
+    min: number
+    max: number
+  }
+}
+
+export interface ReviewFilters {
+  excludeQuotes: boolean
+  excludeReferences: boolean
+  minMatchWords: number
+}
+
+export interface SectionSummary {
+  section: string
+  summary: string
+}
+
+interface ReviewComputation {
+  result: PlagiarismResult
+  meta: ReviewComputationMeta
+}
+
+export interface ReviewAnalysis extends ReviewComputation {
+  sections: SectionSummary[]
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function round(value: number): number {
+  return Math.round(value)
+}
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length
+}
+
+function looksLikeQuotedText(text: string): boolean {
+  const trimmed = text.trim()
+  return (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    trimmed.includes("\u201c") ||
+    trimmed.includes("\u201d")
+  )
+}
+
+function looksLikeReferenceText(text: string): boolean {
+  const referenceSignal = /(doi|vol\.|pp\.|et al\.|journal|conference|proceedings|https?:\/\/|\(\d{4}\))/i
+  return referenceSignal.test(text)
+}
+
+function summarizeBlock(content: string): string {
+  const cleaned = content.replace(/\s+/g, " ").trim()
+  if (!cleaned) return "No content detected for this section."
+
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter((part) => part.trim().length > 0)
+  if (sentences.length <= 2) {
+    return sentences.join(" ").slice(0, 300)
+  }
+
+  return `${sentences[0]} ${sentences[1]}`.slice(0, 420)
+}
+
+function extractSectionSummaries(text: string): SectionSummary[] {
+  const sections: Array<{ label: string; pattern: RegExp }> = [
+    { label: "Abstract", pattern: /\babstract\b/i },
+    { label: "Introduction", pattern: /\bintroduction\b/i },
+    { label: "Methodology", pattern: /\b(methodology|methods?)\b/i },
+    { label: "Results", pattern: /\b(results?|findings?)\b/i },
+    { label: "Discussion", pattern: /\bdiscussion\b/i },
+    { label: "Conclusion", pattern: /\bconclusion\b/i },
+    { label: "References", pattern: /\b(references|bibliography)\b/i },
+  ]
+
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean)
+  const markers: Array<{ index: number; label: string }> = []
+
+  lines.forEach((line, index) => {
+    for (const section of sections) {
+      if (section.pattern.test(line) && line.length < 120) {
+        markers.push({ index, label: section.label })
+        break
+      }
+    }
+  })
+
+  if (markers.length === 0) {
+    return [
+      {
+        section: "Document Overview",
+        summary: summarizeBlock(text.slice(0, 2200)),
+      },
+    ]
+  }
+
+  const uniqueMarkers = markers.filter((marker, idx) => markers.findIndex((m) => m.label === marker.label) === idx)
+  const summaries: SectionSummary[] = []
+
+  uniqueMarkers.forEach((marker, idx) => {
+    const start = marker.index + 1
+    const end = idx < uniqueMarkers.length - 1 ? uniqueMarkers[idx + 1].index : lines.length
+    const block = lines.slice(start, end).join(" ")
+    summaries.push({
+      section: marker.label,
+      summary: summarizeBlock(block),
+    })
+  })
+
+  return summaries.slice(0, 8)
+}
+
+function sanitizeHighlights(result: PlagiarismResult, textLength: number): PlagiarismResult {
+  const highlights = result.highlights
+    .filter((h) => h.text.trim().length > 0)
+    .map((h) => ({
+      ...h,
+      startIndex: clamp(h.startIndex || 0, 0, textLength),
+      endIndex: clamp(h.endIndex || h.startIndex || 0, 0, textLength),
+    }))
+
+  const aiHighlights = result.aiHighlights
+    .filter((h) => h.text.trim().length > 0)
+    .map((h) => ({
+      ...h,
+      startIndex: clamp(h.startIndex || 0, 0, textLength),
+      endIndex: clamp(h.endIndex || h.startIndex || 0, 0, textLength),
+      confidence: clamp(round(h.confidence || 0), 0, 100),
+    }))
+
+  return {
+    ...result,
+    highlights,
+    aiHighlights,
+  }
+}
+
+function buildConfidenceMeta(text: string, result: PlagiarismResult): Pick<ReviewComputationMeta, "confidenceLabel" | "confidenceReasons"> {
+  const reasons: string[] = []
+
+  if (text.length >= 3000) {
+    reasons.push("Document length is sufficient for stable scoring")
+  } else {
+    reasons.push("Shorter text reduces reliability of automated scoring")
+  }
+
+  if (result.validReferences.length >= 3) {
+    reasons.push("Multiple references detected for citation validation")
+  } else {
+    reasons.push("Limited references reduce citation confidence")
+  }
+
+  if (result.detectedSources.length >= 2) {
+    reasons.push("Detected sources provide cross-check evidence")
+  } else {
+    reasons.push("Few detected sources may underrepresent overlap")
+  }
+
+  let confidenceLabel: "low" | "medium" | "high" = "medium"
+
+  const signalScore =
+    (text.length >= 3000 ? 1 : 0) +
+    (result.validReferences.length >= 3 ? 1 : 0) +
+    (result.detectedSources.length >= 2 ? 1 : 0)
+
+  if (signalScore <= 1) {
+    confidenceLabel = "low"
+  } else if (signalScore === 3) {
+    confidenceLabel = "high"
+  }
+
+  return { confidenceLabel, confidenceReasons: reasons }
+}
+
+export function enrichReviewResult(text: string, rawResult: PlagiarismResult): ReviewComputation {
+  return computeReviewAnalysis(text, rawResult, {
+    excludeQuotes: false,
+    excludeReferences: false,
+    minMatchWords: 0,
+  })
+}
+
+export function computeReviewAnalysis(
+  text: string,
+  rawResult: PlagiarismResult,
+  filters: ReviewFilters
+): ReviewAnalysis {
+  const sanitized = sanitizeHighlights(rawResult, text.length)
+
+  const keptHighlights = sanitized.highlights.filter((highlight) => {
+    if (filters.excludeQuotes && looksLikeQuotedText(highlight.text)) {
+      return false
+    }
+    if (filters.excludeReferences && looksLikeReferenceText(highlight.text)) {
+      return false
+    }
+    if (filters.minMatchWords > 0 && wordCount(highlight.text) < filters.minMatchWords) {
+      return false
+    }
+    return true
+  })
+
+  const reductionRatio =
+    sanitized.highlights.length > 0
+      ? keptHighlights.length / sanitized.highlights.length
+      : 1
+
+  const adjustedPlagiarism = clamp(round(sanitized.plagiarismPercentage * reductionRatio), 0, 100)
+
+  const filteredResult: PlagiarismResult = {
+    ...sanitized,
+    highlights: keptHighlights,
+    plagiarismPercentage: adjustedPlagiarism,
+  }
+
+  const invalidReferences = filteredResult.validReferences.filter((ref) => !ref.isValid).length
+  const citationRisk =
+    filteredResult.validReferences.length > 0
+      ? (invalidReferences / filteredResult.validReferences.length) * 100
+      : 25
+
+  const similarityRisk = clamp(filteredResult.plagiarismPercentage, 0, 100)
+  const aiRisk = clamp(filteredResult.aiContentPercentage, 0, 100)
+
+  const integrityScore = clamp(
+    round(100 - (0.55 * similarityRisk + 0.3 * aiRisk + 0.15 * citationRisk)),
+    0,
+    100
+  )
+
+  const turnitinSpread = clamp(round(4 + filteredResult.highlights.length * 0.8), 4, 12)
+  const likelyTurnitinRange = {
+    min: clamp(round(filteredResult.plagiarismPercentage - turnitinSpread), 0, 100),
+    max: clamp(round(filteredResult.plagiarismPercentage + turnitinSpread), 0, 100),
+  }
+
+  const { confidenceLabel, confidenceReasons } = buildConfidenceMeta(text, filteredResult)
+
+  const recommendations = [...filteredResult.recommendations]
+  if (invalidReferences > 0) {
+    recommendations.unshift("Fix invalid or incomplete references to improve citation quality score")
+  }
+  if (filteredResult.highlights.length > 0) {
+    recommendations.unshift("Review highlighted overlap and add stronger citation or rewriting where needed")
+  }
+  if (filters.excludeQuotes || filters.excludeReferences || filters.minMatchWords > 0) {
+    recommendations.unshift("Scoring filters are active, review baseline score by disabling filters for strict comparison")
+  }
+
+  const result: PlagiarismResult = {
+    ...filteredResult,
+    overallScore: integrityScore,
+    recommendations: recommendations.slice(0, 12),
+    turnitinReady: integrityScore >= 75 && filteredResult.plagiarismPercentage <= 22 && filteredResult.aiContentPercentage <= 45,
+  }
+
+  return {
+    result,
+    meta: {
+      integrityScore,
+      confidenceLabel,
+      confidenceReasons,
+      likelyTurnitinRange,
+    },
+    sections: extractSectionSummaries(text),
+  }
+}

@@ -26,6 +26,7 @@ import { useKV } from "@github/spark/hooks"
 import { SaveReviewDialog } from "@/components/SaveReviewDialog"
 import { SavedReviews } from "@/components/SavedReviews"
 import { exportReviewToPDF } from "@/lib/pdf-export"
+import { computeReviewAnalysis, ReviewComputationMeta, ReviewFilters, SectionSummary } from "@/lib/review-engine"
 
 interface PlagiarismCheckerProps {
   userId: string
@@ -41,6 +42,13 @@ export function PlagiarismChecker({ userId }: PlagiarismCheckerProps) {
   const [showUpload, setShowUpload] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [currentReviewResult, setCurrentReviewResult] = useState<DocumentReviewResult | null>(null)
+  const [reviewMeta, setReviewMeta] = useState<ReviewComputationMeta | null>(null)
+  const [sectionSummaries, setSectionSummaries] = useState<SectionSummary[]>([])
+  const [reviewFilters, setReviewFilters] = useState<ReviewFilters>({
+    excludeQuotes: true,
+    excludeReferences: true,
+    minMatchWords: 8,
+  })
   const [documentReviews, setDocumentReviews] = useKV<DocumentReviewResult[]>(
     `document-reviews-${userId}`,
     []
@@ -177,6 +185,8 @@ export function PlagiarismChecker({ userId }: PlagiarismCheckerProps) {
 
     setIsChecking(true)
     setResult(null)
+    setReviewMeta(null)
+    setSectionSummaries([])
     setHumanizedResult(null)
 
     try {
@@ -255,21 +265,24 @@ Required JSON structure:
       }
       
       const parsedResult = JSON.parse(cleanedResponse) as PlagiarismResult
+      const enriched = computeReviewAnalysis(text, parsedResult, reviewFilters)
 
-      setResult(parsedResult)
+      setResult(enriched.result)
+      setReviewMeta(enriched.meta)
+      setSectionSummaries(enriched.sections)
 
       const review: DocumentReviewResult = {
         documentText: text,
         fileName: fileName || "Untitled Document",
-        summary: parsedResult.summary,
-        plagiarismResult: parsedResult,
+        summary: enriched.result.summary,
+        plagiarismResult: enriched.result,
         timestamp: Date.now()
       }
 
       setCurrentReviewResult(review)
       setDocumentReviews((current) => [review, ...(current || [])].slice(0, 20))
 
-      if (parsedResult.turnitinReady) {
+      if (enriched.result.turnitinReady) {
         toast.success("Document analysis complete! ✓ Ready for Turnitin")
       } else {
         toast.warning("Document analysis complete. Review recommendations before submission.")
@@ -323,12 +336,20 @@ Required JSON structure:
     setText(review.documentText)
     setFileName(review.fileName)
     setResult(review.plagiarismResult)
+    const enriched = computeReviewAnalysis(review.documentText, review.plagiarismResult, reviewFilters)
+    setReviewMeta(enriched.meta)
+    setSectionSummaries(enriched.sections)
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
   const handleExportReview = async (review: SavedReviewDocument) => {
     try {
-      await exportReviewToPDF(review)
+      const enriched = computeReviewAnalysis(review.documentText, review.plagiarismResult, reviewFilters)
+      await exportReviewToPDF(review, {
+        meta: enriched.meta,
+        sections: enriched.sections,
+        filters: reviewFilters,
+      })
       toast.success("PDF export initiated!")
     } catch (error) {
       console.error("Export error:", error)
@@ -520,6 +541,42 @@ Return ONLY a valid JSON object:
                 </Button>
               </div>
             </div>
+
+            <div className="mt-4 p-3 border border-border rounded-lg space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Scoring Filters</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={reviewFilters.excludeQuotes}
+                    onChange={(e) => setReviewFilters((prev) => ({ ...prev, excludeQuotes: e.target.checked }))}
+                  />
+                  Exclude quoted matches
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={reviewFilters.excludeReferences}
+                    onChange={(e) => setReviewFilters((prev) => ({ ...prev, excludeReferences: e.target.checked }))}
+                  />
+                  Exclude references/bibliography
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  Min match words
+                  <input
+                    type="number"
+                    min={0}
+                    max={30}
+                    value={reviewFilters.minMatchWords}
+                    onChange={(e) => {
+                      const value = Number(e.target.value)
+                      setReviewFilters((prev) => ({ ...prev, minMatchWords: Number.isNaN(value) ? 0 : value }))
+                    }}
+                    className="w-16 rounded border border-input bg-background px-2 py-1 text-xs"
+                  />
+                </label>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -574,10 +631,10 @@ Return ONLY a valid JSON object:
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="p-4 bg-card border border-border rounded-lg">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-muted-foreground">Originality Score</p>
+                      <p className="text-sm font-medium text-muted-foreground">Integrity Score</p>
                       {getScoreBadge(result.overallScore)}
                     </div>
                     <p className={`text-3xl font-bold ${getScoreColor(result.overallScore)}`}>
@@ -607,7 +664,35 @@ Return ONLY a valid JSON object:
                     </p>
                     <Progress value={result.aiContentPercentage} className="mt-2" />
                   </div>
+
+                  <div className="p-4 bg-card border border-border rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-muted-foreground">Likely Turnitin Range</p>
+                      <Badge variant="secondary">Estimate</Badge>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">
+                      {reviewMeta
+                        ? `${reviewMeta.likelyTurnitinRange.min}% - ${reviewMeta.likelyTurnitinRange.max}%`
+                        : "--"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Confidence: {reviewMeta ? reviewMeta.confidenceLabel.toUpperCase() : "N/A"}
+                    </p>
+                  </div>
                 </div>
+
+                {reviewMeta && (
+                  <Alert>
+                    <AlertDescription>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Scoring Confidence ({reviewMeta.confidenceLabel.toUpperCase()})</p>
+                        {reviewMeta.confidenceReasons.slice(0, 3).map((reason, index) => (
+                          <p key={index} className="text-xs text-muted-foreground">- {reason}</p>
+                        ))}
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 <Tabs defaultValue="summary" className="w-full">
                   <TabsList className="grid w-full grid-cols-5">
@@ -622,6 +707,17 @@ Return ONLY a valid JSON object:
                     <div className="prose prose-sm max-w-none">
                       <p className="text-foreground leading-relaxed">{result.summary}</p>
                     </div>
+
+                    {sectionSummaries.length > 0 && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                        {sectionSummaries.map((item) => (
+                          <div key={item.section} className="p-3 border border-border rounded-lg bg-muted/30">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{item.section}</p>
+                            <p className="text-sm text-foreground leading-relaxed">{item.summary}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </TabsContent>
 
                   <TabsContent value="plagiarism" className="space-y-3">

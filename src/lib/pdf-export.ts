@@ -1,5 +1,6 @@
 import { SavedReviewDocument, SavedStrategy } from "@/types"
 import { format } from "date-fns"
+import { ReviewComputationMeta, ReviewFilters, SectionSummary, enrichReviewResult } from "@/lib/review-engine"
 
 export async function exportStrategyAsPDF(strategy: SavedStrategy) {
   const htmlContent = `
@@ -56,7 +57,19 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
   }
 }
 
-export async function exportReviewToPDF(review: SavedReviewDocument) {
+export async function exportReviewToPDF(
+  review: SavedReviewDocument,
+  options?: {
+    meta?: ReviewComputationMeta
+    sections?: SectionSummary[]
+    filters?: ReviewFilters
+  }
+) {
+  const fallback = enrichReviewResult(review.documentText, review.plagiarismResult)
+  const meta = options?.meta || fallback.meta
+  const sections = options?.sections || []
+  const filters = options?.filters
+
   const techpigeonLogo = `
     <svg width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
       <circle cx="50" cy="50" r="45" fill="#E0BF6B" opacity="0.2"/>
@@ -190,7 +203,7 @@ export async function exportReviewToPDF(review: SavedReviewDocument) {
     
     .scores-section {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 20px;
       margin-bottom: 30px;
     }
@@ -419,7 +432,7 @@ export async function exportReviewToPDF(review: SavedReviewDocument) {
 
   <div class="scores-section">
     <div class="score-card">
-      <div class="score-label">Originality Score</div>
+      <div class="score-label">Integrity Score</div>
       <div class="score-value ${review.plagiarismResult.overallScore >= 80 ? 'good' : review.plagiarismResult.overallScore >= 60 ? 'warning' : 'danger'}">
         ${review.plagiarismResult.overallScore}%
       </div>
@@ -436,6 +449,21 @@ export async function exportReviewToPDF(review: SavedReviewDocument) {
         ${review.plagiarismResult.aiContentPercentage}%
       </div>
     </div>
+    <div class="score-card">
+      <div class="score-label">Likely Turnitin Range</div>
+      <div class="score-value warning">
+        ${meta.likelyTurnitinRange.min}% - ${meta.likelyTurnitinRange.max}%
+      </div>
+      <div style="font-size: 12px; color: #666;">Confidence: ${meta.confidenceLabel.toUpperCase()}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title">Scoring Context</h2>
+    <div class="section-content">
+      ${meta.confidenceReasons.map((reason) => `<div>- ${reason}</div>`).join("")}
+      ${filters ? `<div style="margin-top: 10px;"><strong>Active filters:</strong> quotes=${filters.excludeQuotes ? "excluded" : "included"}, references=${filters.excludeReferences ? "excluded" : "included"}, minMatchWords=${filters.minMatchWords}</div>` : ""}
+    </div>
   </div>
 
   <div class="section">
@@ -444,6 +472,24 @@ export async function exportReviewToPDF(review: SavedReviewDocument) {
       ${review.summary}
     </div>
   </div>
+
+  ${sections.length > 0 ? `
+  <div class="section">
+    <h2 class="section-title">Section Summaries</h2>
+    <div class="section-content">
+      ${sections
+        .map(
+          (item) => `
+            <div style="background: #f8f9fa; border-left: 3px solid #E0BF6B; padding: 12px 15px; margin-bottom: 10px; border-radius: 4px;">
+              <strong>${item.section}</strong><br>
+              <span>${item.summary}</span>
+            </div>
+          `
+        )
+        .join("")}
+    </div>
+  </div>
+  ` : ""}
 
   ${review.plagiarismResult.recommendations.length > 0 ? `
   <div class="section">
