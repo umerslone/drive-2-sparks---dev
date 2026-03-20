@@ -630,7 +630,7 @@ CRITICAL REMINDERS:
           />
         )}
       </AnimatePresence>
-      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background relative overflow-hidden font-sans">
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background relative overflow-hidden font-sans pb-24 md:pb-0">
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -646,11 +646,12 @@ CRITICAL REMINDERS:
             transition={{ duration: 0.5 }}
             className="mb-6"
           >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <Sparkle size={40} weight="duotone" className="text-primary" />
-                <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
-                  AI-Powered Techpigeon Assistant
+            <div className="flex items-center justify-between mb-4 gap-2">
+              <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+                <Sparkle size={32} weight="duotone" className="text-primary shrink-0 md:size-10" />
+                <h1 className="text-xl sm:text-2xl md:text-4xl font-bold tracking-tight text-foreground truncate">
+                  <span className="hidden sm:inline">AI-Powered Techpigeon Assistant</span>
+                  <span className="sm:hidden">Techpigeon AI</span>
                 </h1>
               </div>
               <UserMenu
@@ -661,10 +662,10 @@ CRITICAL REMINDERS:
                 onProfileUpdate={handleProfileUpdate}
               />
             </div>
-            <p className="text-muted-foreground text-lg max-w-2xl leading-relaxed text-center md:text-left">
+            <p className="text-muted-foreground text-sm sm:text-base md:text-lg max-w-2xl leading-relaxed text-center md:text-left">
               Pakistan's leading AI platform for intelligent marketing strategies and business insights
             </p>
-            <p className="text-sm text-muted-foreground mt-2 text-center md:text-left">
+            <p className="text-xs sm:text-sm text-muted-foreground mt-2 text-center md:text-left">
               Powered by <a href="https://www.techpigeon.org" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Techpigeon</a>
             </p>
           </motion.header>
@@ -674,37 +675,31 @@ CRITICAL REMINDERS:
           </AnimatePresence>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className={`hidden md:grid w-full max-w-4xl mx-auto mb-8 grid-cols-3 sm:grid-cols-3 md:grid-cols-5 ${user.role === "admin" ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
-              <TabsTrigger value="generate" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
-                <Lightbulb size={16} weight="bold" className="sm:size-[18px]" />
-                <span className="hidden sm:inline">Strategy</span>
-                <span className="inline sm:hidden">Strategy</span>
+            <TabsList className={`hidden md:grid w-full max-w-4xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-6" : "grid-cols-5"}`}>
+              <TabsTrigger value="generate" className="gap-2 text-sm">
+                <Lightbulb size={18} weight="bold" />
+                <span>Strategy</span>
               </TabsTrigger>
-              <TabsTrigger value="ideas" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
-                <Sparkle size={16} weight="bold" className="sm:size-[18px]" />
-                <span className="hidden sm:inline">Ideas</span>
-                <span className="inline sm:hidden">Ideas</span>
+              <TabsTrigger value="ideas" className="gap-2 text-sm">
+                <Sparkle size={18} weight="bold" />
+                <span>Ideas</span>
               </TabsTrigger>
-              <TabsTrigger value="plagiarism" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
-                <MagnifyingGlass size={16} weight="bold" className="sm:size-[18px]" />
-                <span className="hidden sm:inline">Review</span>
-                <span className="inline sm:hidden">Review</span>
+              <TabsTrigger value="plagiarism" className="gap-2 text-sm">
+                <MagnifyingGlass size={18} weight="bold" />
+                <span>Review</span>
               </TabsTrigger>
-              <TabsTrigger value="dashboard" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
-                <ChartBar size={16} weight="bold" className="sm:size-[18px]" />
-                <span className="hidden sm:inline">Dashboard</span>
-                <span className="inline sm:hidden">Stats</span>
+              <TabsTrigger value="dashboard" className="gap-2 text-sm">
+                <ChartBar size={18} weight="bold" />
+                <span>Dashboard</span>
               </TabsTrigger>
-              <TabsTrigger value="saved" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
-                <FolderOpen size={16} weight="bold" className="sm:size-[18px]" />
-                <span className="hidden sm:inline">Saved ({savedStrategies?.length || 0})</span>
-                <span className="inline sm:hidden">Saved</span>
+              <TabsTrigger value="saved" className="gap-2 text-sm">
+                <FolderOpen size={18} weight="bold" />
+                <span>Saved ({savedStrategies?.length || 0})</span>
               </TabsTrigger>
               {user.role === "admin" && (
-                <TabsTrigger value="admin" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3 col-span-3 sm:col-span-1">
-                  <ShieldCheck size={16} weight="bold" className="sm:size-[18px]" />
-                  <span className="hidden sm:inline">Admin</span>
-                  <span className="inline sm:hidden">Admin</span>
+                <TabsTrigger value="admin" className="gap-2 text-sm">
+                  <ShieldCheck size={18} weight="bold" />
+                  <span>Admin</span>
                 </TabsTrigger>
               )}
             </TabsList>
