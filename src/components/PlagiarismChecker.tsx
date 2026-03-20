@@ -28,6 +28,11 @@ import { SavedReviews } from "@/components/SavedReviews"
 import { exportReviewToPDF } from "@/lib/pdf-export"
 import { computeReviewAnalysis, ReviewComputationMeta, ReviewFilters, SectionSummary } from "@/lib/review-engine"
 import { addProCredits, consumeProCredits, getFeatureEntitlements, upgradeToPro } from "@/lib/subscription"
+import mammoth from "mammoth"
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist"
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
+
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 interface PlagiarismCheckerProps {
   user: UserProfile
@@ -41,6 +46,9 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
   const [result, setResult] = useState<PlagiarismResult | null>(null)
   const [humanizedResult, setHumanizedResult] = useState<HumanizedResult | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [currentReviewResult, setCurrentReviewResult] = useState<DocumentReviewResult | null>(null)
@@ -71,114 +79,179 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     },
   })
 
+  const resetUploadInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
+
+  const readTextFileWithProgress = async (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+
+      reader.onprogress = (event) => {
+        if (event.lengthComputable) {
+          setUploadProgress(Math.max(10, Math.round((event.loaded / event.total) * 80)))
+        }
+      }
+
+      reader.onload = () => resolve((reader.result as string) || "")
+      reader.onerror = () => reject(new Error("Could not read text file"))
+      reader.readAsText(file)
+    })
+  }
+
+  const readArrayBufferWithProgress = async (file: File): Promise<ArrayBuffer> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+
+      reader.onprogress = (event) => {
+        if (event.lengthComputable) {
+          setUploadProgress(Math.max(10, Math.round((event.loaded / event.total) * 80)))
+        }
+      }
+
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.onerror = () => reject(new Error("Could not read uploaded file"))
+      reader.readAsArrayBuffer(file)
+    })
+  }
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
+    if (file.type === "application/msword" || file.name.toLowerCase().endsWith(".doc")) {
+      toast.warning("Legacy .doc files are not supported for extraction. Please use PDF, DOCX, or TXT.")
+      resetUploadInput()
+      return
+    }
+
     const validTypes = [
       'text/plain',
       'application/pdf',
-      'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     ]
 
     if (!validTypes.includes(file.type)) {
-      toast.error("Please upload a valid document (PDF, DOC, DOCX, or TXT)")
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      toast.error("Please upload a valid document (PDF, DOCX, or TXT)")
+      resetUploadInput()
       return
     }
 
     if (file.size > 10 * 1024 * 1024) {
       toast.error("File size must be less than 10MB")
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      resetUploadInput()
       return
     }
 
+    setIsUploading(true)
+    setUploadProgress(5)
+    setUploadStatus(`Uploading ${file.name}...`)
     setFileName(file.name)
     toast.info(`Processing "${file.name}"...`)
 
     try {
       if (file.type === 'text/plain') {
-        const content = await file.text()
+        const content = await readTextFileWithProgress(file)
+        setUploadProgress(95)
         if (content && content.trim().length > 0) {
           setText(content)
+          setUploadProgress(100)
+          setUploadStatus(`Uploaded successfully: ${content.length.toLocaleString()} characters extracted.`)
           toast.success(`File "${file.name}" loaded successfully - ${content.length} characters`)
         } else {
           toast.error("File is empty. Please upload a file with content.")
+          setUploadStatus("Upload failed: file is empty.")
           setFileName(null)
         }
       } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        const arrayBuffer = await file.arrayBuffer()
+        setUploadStatus("Reading DOCX file...")
+        const arrayBuffer = await readArrayBufferWithProgress(file)
+        setUploadStatus("Extracting text from DOCX...")
         const extractedText = await extractTextFromDocx(arrayBuffer)
+        setUploadProgress(95)
         
         if (extractedText && extractedText.trim().length > 0) {
           setText(extractedText)
+          setUploadProgress(100)
+          setUploadStatus(`DOCX processed: ${extractedText.length.toLocaleString()} characters extracted.`)
           toast.success(`File "${file.name}" loaded successfully - ${extractedText.length} characters extracted`)
         } else {
           toast.error("Could not extract text from DOCX. Please paste your text manually or use a TXT file.")
+          setUploadStatus("Upload failed: no readable text found in DOCX.")
           setText("")
           setFileName(null)
         }
-      } else if (file.type === 'application/pdf' || file.type === 'application/msword') {
-        toast.warning(`${file.type === 'application/pdf' ? 'PDF' : 'DOC'} extraction requires additional processing. Please copy and paste your text manually, or use a TXT file for direct upload.`)
-        setText("")
-        setFileName(null)
+      } else if (file.type === 'application/pdf') {
+        setUploadStatus("Reading PDF file...")
+        const arrayBuffer = await readArrayBufferWithProgress(file)
+        setUploadStatus("Extracting text from PDF...")
+        const extractedText = await extractTextFromPdf(arrayBuffer)
+        setUploadProgress(95)
+
+        if (extractedText && extractedText.trim().length > 0) {
+          setText(extractedText)
+          setUploadProgress(100)
+          setUploadStatus(`PDF processed: ${extractedText.length.toLocaleString()} characters extracted.`)
+          toast.success(`File "${file.name}" loaded successfully - ${extractedText.length} characters extracted`)
+        } else {
+          toast.error("Could not extract text from PDF. If the PDF is scanned/image-based, please paste text manually.")
+          setUploadStatus("Upload failed: no selectable text found in PDF.")
+          setText("")
+          setFileName(null)
+        }
       }
     } catch (error) {
       console.error("File upload error:", error)
       toast.error("Failed to process file. Please try again or paste your text manually.")
+      setUploadStatus("Upload failed while processing the document.")
       setText("")
       setFileName(null)
+      setUploadProgress(0)
+    } finally {
+      setIsUploading(false)
     }
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
+    resetUploadInput()
   }
 
   const extractTextFromDocx = async (arrayBuffer: ArrayBuffer): Promise<string> => {
     try {
-      const uint8Array = new Uint8Array(arrayBuffer)
-      const decoder = new TextDecoder('utf-8', { fatal: false })
-      let fullText = decoder.decode(uint8Array)
-      
-      const xmlRegex = /<w:t[^>]*>([^<]+)<\/w:t>/g
-      const matches = fullText.matchAll(xmlRegex)
-      const extractedParts: string[] = []
-      
-      for (const match of matches) {
-        if (match[1]) {
-          extractedParts.push(match[1])
-        }
-      }
-      
-      if (extractedParts.length > 0) {
-        return extractedParts.join(' ').replace(/\s+/g, ' ').trim()
-      }
-      
-      const paragraphRegex = /<w:p\b[^>]*>(.*?)<\/w:p>/gs
-      const paragraphMatches = fullText.matchAll(paragraphRegex)
-      const paragraphTexts: string[] = []
-      
-      for (const match of paragraphMatches) {
-        const textMatches = match[1].matchAll(/<w:t[^>]*>([^<]+)<\/w:t>/g)
-        const texts = Array.from(textMatches, m => m[1])
-        if (texts.length > 0) {
-          paragraphTexts.push(texts.join(' '))
-        }
-      }
-      
-      if (paragraphTexts.length > 0) {
-        return paragraphTexts.join('\n\n').replace(/\s+/g, ' ').trim()
-      }
-      
-      return ""
+      const result = await mammoth.extractRawText({ arrayBuffer })
+      return result.value.replace(/\s+\n/g, "\n").trim()
     } catch (error) {
-      console.error("Text extraction error:", error)
+      console.error("DOCX extraction error:", error)
+      return ""
+    }
+  }
+
+  const extractTextFromPdf = async (arrayBuffer: ArrayBuffer): Promise<string> => {
+    try {
+      const loadingTask = getDocument({ data: new Uint8Array(arrayBuffer) })
+      const pdf = await loadingTask.promise
+      const pages: string[] = []
+
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber)
+        const content = await page.getTextContent()
+        const pageText = content.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+
+        if (pageText) {
+          pages.push(pageText)
+        }
+
+        // Keep progress responsive while parsing multi-page PDFs.
+        setUploadProgress(Math.max(20, Math.round((pageNumber / pdf.numPages) * 90)))
+      }
+
+      return pages.join("\n\n").trim()
+    } catch (error) {
+      console.error("PDF extraction error:", error)
       return ""
     }
   }
@@ -531,6 +604,12 @@ Return ONLY a valid JSON object:
               <FileText size={18} weight="duotone" />
               {showUpload ? "Hide Upload" : "Show Upload"}
             </Button>
+            {isUploading && (
+              <Badge variant="outline" className="gap-1">
+                <Sparkle size={14} className="animate-pulse" />
+                Uploading {uploadProgress}%
+              </Badge>
+            )}
             {fileName && (
               <Badge variant="secondary" className="gap-1">
                 <FileText size={14} />
@@ -554,13 +633,13 @@ Return ONLY a valid JSON object:
                       Upload Document
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      PDF, DOC, DOCX, or TXT (max 10MB)
+                      PDF, DOCX, or TXT (max 10MB)
                     </p>
                   </div>
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.doc,.docx,.txt"
+                    accept=".pdf,.docx,.txt"
                     onChange={handleFileUpload}
                     className="hidden"
                   />
@@ -568,9 +647,17 @@ Return ONLY a valid JSON object:
                     onClick={() => fileInputRef.current?.click()}
                     variant="outline"
                     size="sm"
+                    disabled={isUploading}
                   >
-                    Choose File
+                    {isUploading ? `Uploading ${uploadProgress}%` : "Choose File"}
                   </Button>
+
+                  {uploadStatus && (
+                    <div className="w-full max-w-md mx-auto space-y-2">
+                      <Progress value={isUploading ? uploadProgress : uploadProgress || undefined} className="w-full" />
+                      <p className="text-xs text-muted-foreground">{uploadStatus}</p>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -618,7 +705,7 @@ Return ONLY a valid JSON object:
 
                 <Button
                   onClick={checkPlagiarism}
-                  disabled={!text.trim() || text.trim().length < 50 || isChecking}
+                  disabled={!text.trim() || text.trim().length < 50 || isChecking || isUploading}
                   size="sm"
                   className="gap-2"
                 >
