@@ -255,7 +255,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
               toast.success(`OCR completed for "${file.name}"`)
             } else {
               toast.error("Could not extract readable text from this PDF, even with OCR. Try a clearer scan (300 DPI+) or paste text manually.")
-              setUploadStatus("Upload failed: OCR could not detect readable text. Try a higher-quality scan.")
+              setUploadStatus("Upload failed: OCR exhausted all enhancement options. PDF quality too low or content is not text-based. Try manual text entry.")
               setText("")
               setFileName(null)
             }
@@ -490,7 +490,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     return output
   }
 
-  const preprocessCanvasForOcr = (source: HTMLCanvasElement, filterMode: "standard" | "aggressive" = "standard"): HTMLCanvasElement => {
+  const preprocessCanvasForOcr = (source: HTMLCanvasElement, filterMode: "standard" | "aggressive" | "ultra" = "standard"): HTMLCanvasElement => {
     const canvas = document.createElement("canvas")
     canvas.width = source.width
     canvas.height = source.height
@@ -503,7 +503,15 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     ctx.drawImage(source, 0, 0)
     let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
-    if (filterMode === "aggressive") {
+    if (filterMode === "ultra") {
+      // Ultra aggressive preprocessing for very poor quality scans
+      imageData = removeSaltAndPepperNoise(imageData)
+      imageData = removeSaltAndPepperNoise(imageData) // Apply twice
+      imageData = applyGaussianBlur(imageData, 2)
+      imageData = sharpenImage(imageData)
+      imageData = applyAdaptiveThreshold(imageData, 20)
+      imageData = removeSaltAndPepperNoise(imageData)
+    } else if (filterMode === "aggressive") {
       imageData = removeSaltAndPepperNoise(imageData)
       imageData = applyGaussianBlur(imageData, 1.2)
       imageData = sharpenImage(imageData)
@@ -591,6 +599,19 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
             const thirdPass = thirdPassText.trim()
             if (thirdPass.length > bestText.length) {
               bestText = thirdPass
+            }
+
+            if (bestText.length < 40) {
+              setUploadStatus(`Applying ultra-enhanced filters to page ${pageNumber}...`)
+              const ultraCanvas = preprocessCanvasForOcr(canvas, "ultra")
+              const {
+                data: { text: ultraPassText },
+              } = await worker.recognize(ultraCanvas)
+
+              const ultraPass = ultraPassText.trim()
+              if (ultraPass.length > bestText.length) {
+                bestText = ultraPass
+              }
             }
           }
         }
