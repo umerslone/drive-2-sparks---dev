@@ -232,33 +232,37 @@ Topic/Description: ${description}
 
 ${contextSection}
 
-CRITICAL JSON FORMATTING RULES:
+CRITICAL JSON FORMATTING RULES - FOLLOW EXACTLY:
 1. Return ONLY a valid JSON object with no markdown, no code blocks, no text before or after
-2. All string values must properly escape special characters: use \\" for quotes, \\\\ for backslashes, \\n for newlines
-3. Do NOT use unescaped quotes, line breaks, or special characters inside string values
-4. Keep all content within string values - no nested objects or arrays
-5. Test that your output is valid JSON before returning
-6. Do NOT include any explanatory text or commentary outside the JSON object
+2. ALL string values MUST use straight double quotes (") NOT curly/smart quotes ("")
+3. Inside string values, escape ALL special characters:
+   - Use \\" for quotes
+   - Use \\\\ for backslashes  
+   - Use \\n for line breaks (NOT actual line breaks)
+   - Do NOT use unescaped quotes, tabs, or newlines
+4. Keep ALL content as plain text within string values - no nested JSON structures
+5. Each string value MUST be on a single logical line (use \\n for breaks, not actual newlines)
+6. Do NOT include any text outside the JSON object
 
 Required JSON structure with exactly these eight properties:
 
 {
-  "marketingCopy": "Persuasive, engaging marketing copy (2-3 paragraphs) that highlights benefits, creates desire, and includes a compelling call-to-action. Use simple formatting only.",
-  "visualStrategy": "Detailed visual strategy recommendations including suggested imagery, colors, design motifs, mood, and overall aesthetic direction. Write as flowing paragraphs with simple formatting.",
-  "targetAudience": "Specific recommendation for the ideal target audience including demographics, psychographics, pain points, and why they need this. Use simple text formatting.",
-  "applicationWorkflow": "Practical application implementation workflow (architecture, key modules, API/service flow, phased build plan). Use simple bullet-like formatting with hyphens, not complex markdown.",
-  "uiWorkflow": "Step-by-step UI implementation guidance (screens/components, design system setup, interaction patterns, accessibility). Use simple formatting.",
-  "databaseWorkflow": "Database implementation guidance (schema entities, relationships, migration approach, indexing, security/data validation). Use simple formatting.",
-  "mobileWorkflow": "Mobile app implementation guidance (cross-platform approach, navigation, offline/state strategy, release milestones, push/notification considerations). Use simple formatting.",
-  "implementationChecklist": "Compact sprint-ready checklist with clear tasks grouped by phases (MVP setup, build, test, launch). Keep it concise and actionable with simple formatting."
+  "marketingCopy": "2-3 paragraphs of persuasive marketing copy. Use only plain text with \\n for paragraph breaks. No special characters.",
+  "visualStrategy": "Visual strategy recommendations as plain text paragraphs. Use \\n for breaks. No special formatting.",
+  "targetAudience": "Target audience description as plain text. Use \\n for breaks. Keep it simple.",
+  "applicationWorkflow": "Implementation workflow as plain text with hyphens for bullets. Use \\n between items. No complex formatting.",
+  "uiWorkflow": "UI implementation guidance as plain text. Use hyphens and \\n. Keep it simple.",
+  "databaseWorkflow": "Database guidance as plain text. Use hyphens and \\n. No special characters.",
+  "mobileWorkflow": "Mobile implementation guidance as plain text. Use hyphens and \\n. Simple formatting only.",
+  "implementationChecklist": "Sprint tasks as plain text checklist. Use hyphens and \\n. Keep concise."
 }
 
-FORMATTING GUIDELINES:
-- Use simple text formatting: hyphens for bullets, line breaks for separation
-- Avoid complex markdown, code blocks, or special symbols
-- Keep content professional, actionable, and inspiring
-- Be specific and creative while maintaining valid JSON structure
-- Ensure ALL strings are properly terminated and escaped`
+CRITICAL REMINDERS:
+- NO actual line breaks in string values - use \\n
+- NO unescaped quotes - use \\" 
+- NO special/curly quotes - use straight quotes only
+- Keep content concise to avoid string termination issues
+- Validate your JSON is parseable before returning`
 
     if (typeof spark.llm !== "function") {
       const error = new Error("Spark LLM function is not available.")
@@ -295,11 +299,51 @@ FORMATTING GUIDELINES:
       cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1)
     }
     
-    console.log(`Attempt ${attemptNumber} - Response length:`, cleanedResponse.length)
-    console.log(`Attempt ${attemptNumber} - First 200 chars:`, cleanedResponse.substring(0, 200))
-    console.log(`Attempt ${attemptNumber} - Last 200 chars:`, cleanedResponse.substring(Math.max(0, cleanedResponse.length - 200)))
+    cleanedResponse = cleanedResponse
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/\u2013/g, '-')
+      .replace(/\u2014/g, '--')
+      .replace(/\u2026/g, '...')
     
-    const parsedResult = JSON.parse(cleanedResponse) as MarketingResult
+    console.log(`Attempt ${attemptNumber} - Response length:`, cleanedResponse.length)
+    console.log(`Attempt ${attemptNumber} - First 300 chars:`, cleanedResponse.substring(0, 300))
+    console.log(`Attempt ${attemptNumber} - Last 300 chars:`, cleanedResponse.substring(Math.max(0, cleanedResponse.length - 300)))
+    
+    let parsedResult: MarketingResult
+    
+    try {
+      parsedResult = JSON.parse(cleanedResponse) as MarketingResult
+    } catch (parseError) {
+      console.error(`Attempt ${attemptNumber} - JSON parse failed:`, parseError)
+      console.error(`Problematic JSON around error position:`)
+      
+      if (parseError instanceof SyntaxError) {
+        const match = parseError.message.match(/position (\d+)/)
+        if (match) {
+          const pos = parseInt(match[1], 10)
+          const start = Math.max(0, pos - 100)
+          const end = Math.min(cleanedResponse.length, pos + 100)
+          console.error(`Context: ...${cleanedResponse.substring(start, end)}...`)
+        }
+      }
+      
+      await logError(
+        "JSON parse error in LLM response",
+        parseError instanceof Error ? parseError : new Error(String(parseError)),
+        "generation",
+        "high",
+        user?.id,
+        {
+          attemptNumber,
+          responseLength: cleanedResponse.length,
+          firstChars: cleanedResponse.substring(0, 200),
+          lastChars: cleanedResponse.substring(Math.max(0, cleanedResponse.length - 200)),
+        }
+      )
+      
+      throw parseError
+    }
     
     console.log(`Attempt ${attemptNumber} - Successfully parsed with keys:`, Object.keys(parsedResult))
 
