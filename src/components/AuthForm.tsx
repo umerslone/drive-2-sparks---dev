@@ -51,9 +51,6 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
       validateInvite()
     }
   }, [])
-  const [inviteCode, setInviteCode] = useState<string | null>(null)
-  const [inviteValid, setInviteValid] = useState(false)
-  const [invitedBy, setInvitedBy] = useState<string | null>(null)
 
   if (showPasswordReset) {
     return <PasswordResetFlow onBack={() => setShowPasswordReset(false)} />

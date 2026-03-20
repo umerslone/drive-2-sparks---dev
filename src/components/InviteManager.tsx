@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Copy, QrCode, Trash2, Link as LinkIcon } from "@phosphor-icons/react"
+import { Copy, QrCode, Trash, Link as LinkIcon } from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { inviteService, type InviteLink } from "@/lib/invite-system"
 import { QRCodeGenerator } from "@/components/QRCodeGenerator"
@@ -150,7 +150,7 @@ export function InviteManager({ user }: InviteManagerProps) {
                             variant="outline"
                             size="sm"
                             className="gap-1.5"
-                            disabled={isExpired || isUsed}
+                            disabled={Boolean(isExpired || isUsed)}
                           >
                             <QrCode size={16} />
                             QR
@@ -184,7 +184,7 @@ export function InviteManager({ user }: InviteManagerProps) {
                         size="sm"
                         className="gap-1.5"
                         onClick={() => handleCopyLink(link)}
-                        disabled={isExpired || isUsed}
+                        disabled={Boolean(isExpired || isUsed)}
                       >
                         <Copy size={16} />
                       </Button>
@@ -196,7 +196,7 @@ export function InviteManager({ user }: InviteManagerProps) {
                           className="gap-1.5"
                           onClick={() => handleRevokeInvite(invite.code)}
                         >
-                          <Trash2 size={16} />
+                          <Trash size={16} />
                         </Button>
                       )}
                     </div>
