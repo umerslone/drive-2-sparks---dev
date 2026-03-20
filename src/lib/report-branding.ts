@@ -1,9 +1,11 @@
+import techpigeonLogo from "@/assets/images/techpigeon-logo.png"
+
 export const REPORT_BRAND = {
   companyName: "Techpigeon",
   projectName: "Drive 2 AI Sparks",
   companyTagline: "Drive 2 AI Sparks",
   website: "https://www.techpigeon.org",
-  logoPath: "https://ai-powered-techpigeo--umerslone.github.app/assets/techpigeon-logo-CjLW5l5l.png",
+  logoPath: techpigeonLogo,
   colors: {
     primary: "#5CC3EB",
     secondary: "#8CB499",
