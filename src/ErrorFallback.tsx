@@ -1,14 +1,14 @@
 import { Alert, AlertTitle, AlertDescription } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
-import { ArrowClockwise } from "@phosphor-icons/react";
+export const ErrorFallback = ({ error, resetErrorBounda
 
 export const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) => {
   if (import.meta.env.DEV) throw error;
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <AlertDescription>
       <div className="max-w-2xl w-full space-y-4">
-        <Alert variant="destructive">
+        </Alert>
           <AlertTitle>Something went wrong</AlertTitle>
           <AlertDescription>
             An unexpected error occurred. Please try refreshing the page.
@@ -18,16 +18,16 @@ export const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error; res
         <div className="text-sm text-muted-foreground p-4 bg-muted rounded-lg">
           <pre className="whitespace-pre-wrap break-words">{error.message}</pre>
         </div>
-        
+    </di
         <Button 
-          onClick={resetErrorBoundary}
+
           variant="outline"
-          className="gap-2"
+
         >
-          <ArrowClockwise size={16} />
+
           Try Again
-        </Button>
+
       </div>
-    </div>
+
   );
-}
+
