@@ -1,14 +1,17 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { 
   ChartBar, 
   Sparkle, 
   CalendarBlank, 
   TrendUp,
   Target,
-  ClockCounterClockwise
+  ClockCounterClockwise,
+  ArrowsClockwise
 } from "@phosphor-icons/react"
+import { toast } from "sonner"
 import { SavedStrategy } from "@/types"
 
 interface DashboardProps {
@@ -19,6 +22,7 @@ interface DashboardProps {
     count: number
     lastUsedAt: number
   }>
+  onRefresh?: () => void
 }
 
 interface ConceptModeStats {
@@ -49,7 +53,23 @@ const CONCEPT_MODE_COLORS: Record<string, string> = {
   ops: "bg-slate-500/20 border-slate-500/40 text-slate-700",
 }
 
-export function Dashboard({ strategies, promptMemory }: DashboardProps) {
+export function Dashboard({ strategies, promptMemory, onRefresh }: DashboardProps) {
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    toast.info("Refreshing dashboard data...")
+    
+    if (onRefresh) {
+      await onRefresh()
+    }
+    
+    setTimeout(() => {
+      setIsRefreshing(false)
+      toast.success("Dashboard data refreshed")
+    }, 500)
+  }
+
   const stats = useMemo(() => {
     const totalStrategies = strategies.length
     const totalPrompts = promptMemory.reduce((sum, item) => sum + item.count, 0)
@@ -114,10 +134,26 @@ export function Dashboard({ strategies, promptMemory }: DashboardProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <h2 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-2">
-          <ChartBar size={28} weight="duotone" className="text-primary" />
-          Your Dashboard
-        </h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <ChartBar size={28} weight="duotone" className="text-primary" />
+            Your Dashboard
+          </h2>
+          <Button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <ArrowsClockwise 
+              size={16} 
+              weight="bold" 
+              className={isRefreshing ? "animate-spin" : ""}
+            />
+            {isRefreshing ? "Refreshing..." : "Refresh Stats"}
+          </Button>
+        </div>
       </motion.div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

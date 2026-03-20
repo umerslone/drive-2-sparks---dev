@@ -51,6 +51,7 @@ import {
   Archive,
   ArrowCounterClockwise,
   Link as LinkIcon,
+  ArrowsClockwise,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { UserProfile, UserRole, SavedStrategy, SavedReviewDocument } from "@/types"
@@ -61,6 +62,7 @@ import { InviteManager } from "@/components/InviteManager"
 export function AdminDashboard() {
   const [users, setUsers] = useState<UserProfile[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalAdmins: 0,
@@ -108,8 +110,14 @@ export function AdminDashboard() {
     }
   }
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true)
+  const loadData = useCallback(async (showRefreshToast = false) => {
+    if (showRefreshToast) {
+      setIsRefreshing(true)
+      toast.info("Refreshing admin data...")
+    } else {
+      setIsLoading(true)
+    }
+
     try {
       const [allUsers, strategies, reviews] = await Promise.all([
         adminService.getAllUsers(),
@@ -123,11 +131,16 @@ export function AdminDashboard() {
       setAllStrategies(strategies)
       setAllReviews(reviews)
       setStats(syncedStats)
+
+      if (showRefreshToast) {
+        toast.success("Admin data refreshed successfully")
+      }
     } catch (error) {
       console.error("Failed to load admin data:", error)
       toast.error("Failed to load admin data")
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
     }
   }, [])
 
@@ -341,10 +354,26 @@ export function AdminDashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <h2 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-2">
-            <ShieldCheck size={28} weight="duotone" className="text-primary" />
-            Admin Dashboard
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <ShieldCheck size={28} weight="duotone" className="text-primary" />
+              Admin Dashboard
+            </h2>
+            <Button
+              onClick={() => loadData(true)}
+              disabled={isRefreshing}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+              <ArrowsClockwise 
+                size={16} 
+                weight="bold" 
+                className={isRefreshing ? "animate-spin" : ""}
+              />
+              {isRefreshing ? "Refreshing..." : "Refresh Stats"}
+            </Button>
+          </div>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
