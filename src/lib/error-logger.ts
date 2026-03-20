@@ -3,7 +3,7 @@ import { ErrorLog, ErrorSeverity, ErrorCategory } from "@/types"
 const ERROR_LOGS_KEY = "app-error-logs"
 const MAX_ERROR_LOGS = 1000
 
-export class ErrorLogger {
+class ErrorLogger {
   private static instance: ErrorLogger
   private errorLogs: ErrorLog[] = []
 
@@ -18,22 +18,31 @@ export class ErrorLogger {
     return ErrorLogger.instance
   }
 
-  private async loadErrorLogs(): Promise<void> {
+  private loadErrorLogs(): void {
+    if (typeof window === "undefined") {
+      this.errorLogs = []
+      return
+    }
+
     try {
-      const logs = await spark.kv.get<ErrorLog[]>(ERROR_LOGS_KEY)
-      this.errorLogs = logs || []
+      const storedLogs = localStorage.getItem(ERROR_LOGS_KEY)
+      this.errorLogs = storedLogs ? (JSON.parse(storedLogs) as ErrorLog[]) : []
     } catch (error) {
-      console.error("Failed to load error logs:", error)
+      console.warn("Failed to load error logs:", error)
       this.errorLogs = []
     }
   }
 
   private async saveErrorLogs(): Promise<void> {
+    if (typeof window === "undefined") {
+      return
+    }
+
     try {
       const logsToSave = this.errorLogs.slice(0, MAX_ERROR_LOGS)
-      await spark.kv.set(ERROR_LOGS_KEY, logsToSave)
+      localStorage.setItem(ERROR_LOGS_KEY, JSON.stringify(logsToSave))
     } catch (error) {
-      console.error("Failed to save error logs:", error)
+      console.warn("Failed to save error logs:", error)
     }
   }
 
@@ -46,7 +55,7 @@ export class ErrorLogger {
     metadata?: Record<string, unknown>
   ): Promise<string> {
     const errorLog: ErrorLog = {
-      id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `error-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       timestamp: Date.now(),
       message,
       stack: error instanceof Error ? error.stack : undefined,
@@ -54,8 +63,8 @@ export class ErrorLogger {
       category,
       severity,
       userId,
-      userAgent: navigator.userAgent,
-      url: window.location.href,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+      url: typeof window !== "undefined" ? window.location.href : "unknown",
       metadata: {
         ...metadata,
         errorString: error instanceof Error ? error.toString() : String(error),
@@ -64,7 +73,6 @@ export class ErrorLogger {
     }
 
     this.errorLogs.unshift(errorLog)
-
     this.errorLogs = this.errorLogs.slice(0, MAX_ERROR_LOGS)
 
     await this.saveErrorLogs()
@@ -85,39 +93,31 @@ export class ErrorLogger {
     severity?: ErrorSeverity
     userId?: string
     resolved?: boolean
-    limit?: number
   }): Promise<ErrorLog[]> {
-    await this.loadErrorLogs()
-
-    let filtered = [...this.errorLogs]
+    let filteredLogs = [...this.errorLogs]
 
     if (filters?.category) {
-      filtered = filtered.filter((log) => log.category === filters.category)
+      filteredLogs = filteredLogs.filter((log) => log.category === filters.category)
     }
 
     if (filters?.severity) {
-      filtered = filtered.filter((log) => log.severity === filters.severity)
+      filteredLogs = filteredLogs.filter((log) => log.severity === filters.severity)
     }
 
     if (filters?.userId) {
-      filtered = filtered.filter((log) => log.userId === filters.userId)
+      filteredLogs = filteredLogs.filter((log) => log.userId === filters.userId)
     }
 
-    if (filters?.resolved !== undefined) {
-      filtered = filtered.filter((log) => log.resolved === filters.resolved)
+    if (typeof filters?.resolved === "boolean") {
+      filteredLogs = filteredLogs.filter((log) => log.resolved === filters.resolved)
     }
 
-    if (filters?.limit) {
-      filtered = filtered.slice(0, filters.limit)
-    }
-
-    return filtered
+    return filteredLogs.sort((a, b) => b.timestamp - a.timestamp)
   }
 
   async markErrorAsResolved(errorId: string): Promise<void> {
-    await this.loadErrorLogs()
     const errorIndex = this.errorLogs.findIndex((log) => log.id === errorId)
-    
+
     if (errorIndex !== -1) {
       this.errorLogs[errorIndex] = {
         ...this.errorLogs[errorIndex],
@@ -129,14 +129,13 @@ export class ErrorLogger {
   }
 
   async clearResolvedErrors(): Promise<void> {
-    await this.loadErrorLogs()
     this.errorLogs = this.errorLogs.filter((log) => !log.resolved)
     await this.saveErrorLogs()
   }
 
   async clearAllErrors(): Promise<void> {
     this.errorLogs = []
-    await spark.kv.delete(ERROR_LOGS_KEY)
+    await this.saveErrorLogs()
   }
 
   async getErrorStats(): Promise<{
@@ -147,8 +146,6 @@ export class ErrorLogger {
     unresolved: number
     recentErrors: number
   }> {
-    await this.loadErrorLogs()
-
     const now = Date.now()
     const oneDayAgo = now - 24 * 60 * 60 * 1000
 
@@ -171,27 +168,30 @@ export class ErrorLogger {
     }
 
     let resolved = 0
+    let unresolved = 0
     let recentErrors = 0
 
-    this.errorLogs.forEach((log) => {
-      byCategory[log.category] = (byCategory[log.category] || 0) + 1
-      bySeverity[log.severity] = (bySeverity[log.severity] || 0) + 1
-      
+    for (const log of this.errorLogs) {
+      byCategory[log.category]++
+      bySeverity[log.severity]++
+
       if (log.resolved) {
         resolved++
+      } else {
+        unresolved++
       }
-      
+
       if (log.timestamp >= oneDayAgo) {
         recentErrors++
       }
-    })
+    }
 
     return {
       total: this.errorLogs.length,
       byCategory,
       bySeverity,
       resolved,
-      unresolved: this.errorLogs.length - resolved,
+      unresolved,
       recentErrors,
     }
   }
@@ -210,20 +210,10 @@ export const logError = (
   return errorLogger.logError(message, error, category, severity, userId, metadata)
 }
 
-export const createErrorBoundaryHandler = (
-  category: ErrorCategory,
-  userId?: string
-) => {
+export const createErrorBoundaryHandler = (category: ErrorCategory, userId?: string) => {
   return (error: Error, errorInfo: { componentStack: string }) => {
-    logError(
-      "React Error Boundary caught an error",
-      error,
-      category,
-      "high",
-      userId,
-      {
-        componentStack: errorInfo.componentStack,
-      }
-    )
+    logError("React Error Boundary caught an error", error, category, "high", userId, {
+      componentStack: errorInfo.componentStack,
+    })
   }
 }
