@@ -9,7 +9,8 @@ import {
   CheckCircle,
   WarningCircle,
   Robot,
-  ShieldCheck 
+  ShieldCheck,
+  Archive 
 } from "@phosphor-icons/react"
 import { motion, AnimatePresence } from "framer-motion"
 import { SavedReviewDocument } from "@/types"
@@ -18,11 +19,12 @@ import { format } from "date-fns"
 interface SavedReviewsProps {
   reviews: SavedReviewDocument[]
   onDelete: (id: string) => void
+  onArchive?: (id: string) => void
   onView: (review: SavedReviewDocument) => void
   onExport: (review: SavedReviewDocument) => void
 }
 
-export function SavedReviews({ reviews, onDelete, onView, onExport }: SavedReviewsProps) {
+export function SavedReviews({ reviews, onDelete, onArchive, onView, onExport }: SavedReviewsProps) {
   const getScoreBadge = (score: number) => {
     if (score >= 80) {
       return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle size={12} weight="fill" /> {score}%</Badge>
@@ -141,6 +143,17 @@ export function SavedReviews({ reviews, onDelete, onView, onExport }: SavedRevie
                     <DownloadSimple size={16} weight="duotone" />
                     Export PDF
                   </Button>
+                  {onArchive && (
+                    <Button
+                      onClick={() => onArchive(review.id)}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <Archive size={16} weight="duotone" />
+                      Archive
+                    </Button>
+                  )}
                   <Button
                     onClick={() => onDelete(review.id)}
                     variant="ghost"
