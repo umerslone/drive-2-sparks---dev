@@ -1,3 +1,14 @@
+export type IdeaMemoryType = "idea" | "canvas" | "pitch"
+
+export interface UserMemoryEntry {
+  id: string
+  userId: string
+  type: IdeaMemoryType
+  title: string
+  facts: string[]
+  createdAt: number
+}
+
 export interface MarketingResult {
   marketingCopy: string
   visualStrategy: string

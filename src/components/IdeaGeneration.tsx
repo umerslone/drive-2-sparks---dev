@@ -14,7 +14,7 @@ import {
   PresentationChart
 } from "@phosphor-icons/react"
 import { motion, AnimatePresence } from "framer-motion"
-import { CookedIdea, BusinessCanvasModel, PitchDeck, SavedIdea } from "@/types"
+import { CookedIdea, BusinessCanvasModel, PitchDeck, SavedIdea, UserMemoryEntry } from "@/types"
 import { BusinessCanvasView } from "@/components/BusinessCanvasView"
 import { PitchDeckView } from "@/components/PitchDeckView"
 import { SaveIdeaDialog } from "@/components/SaveIdeaDialog"
@@ -40,7 +40,19 @@ export function IdeaGeneration({ userId }: IdeaGenerationProps) {
     userId ? `saved-ideas-${userId}` : "saved-ideas-temp",
     []
   )
+  const [userMemory, setUserMemory] = useKV<UserMemoryEntry[]>(
+    userId ? `idea-memory-${userId}` : "idea-memory-temp",
+    []
+  )
   const resultsRef = useRef<HTMLDivElement>(null)
+
+  const buildMemoryContext = (): string => {
+    const entries = userMemory ?? []
+    if (entries.length === 0) return ""
+    const recent = entries.slice(-6)
+    const lines = recent.map(e => `- [${e.type}] ${e.title}: ${e.facts.join(" | ")}`).join("\n")
+    return `\n\nThe user has previously explored these business ideas (use this to avoid repetition and build on their history):\n${lines}`
+  }
 
   const isValidInput = ideaInput.trim().length >= 10
 
@@ -53,10 +65,12 @@ export function IdeaGeneration({ userId }: IdeaGenerationProps) {
     setIsLoadingIdea(true)
 
     try {
+      const memoryContext = buildMemoryContext()
+
       const prompt = spark.llmPrompt`You are a world-class business mentor and innovation strategist.
 Your task is to analyze and refine the following business idea:
 
-"${ideaInput}"
+"${ideaInput}"${memoryContext}
 
 Provide a comprehensive analysis in valid JSON format with the following structure:
 
@@ -102,7 +116,22 @@ CRITICAL: Return ONLY valid JSON with no markdown, no code blocks, no explanator
       setBusinessCanvas(null)
       setPitchDeck(null)
       setCurrentIdeaInput(ideaInput)
-      
+
+      const memoryEntry: UserMemoryEntry = {
+        id: crypto.randomUUID(),
+        userId,
+        type: "idea",
+        title: parsedResult.refinedIdea.slice(0, 90),
+        facts: [
+          `Market: ${parsedResult.marketOpportunity.slice(0, 80)}`,
+          `Revenue: ${parsedResult.revenueModel.slice(0, 80)}`,
+          `Top risk: ${parsedResult.keyRisks[0] ?? "—"}`,
+          `Target: ${parsedResult.targetMarket.slice(0, 60)}`,
+        ],
+        createdAt: Date.now(),
+      }
+      setUserMemory(current => [memoryEntry, ...(current ?? [])].slice(0, 20))
+
       toast.success("Idea cooked successfully!")
       
       setTimeout(() => {
@@ -171,6 +200,21 @@ CRITICAL: Return ONLY valid JSON with no markdown formatting.`
       console.log("Business Canvas keys:", Object.keys(parsedResult))
       
       setBusinessCanvas(parsedResult)
+
+      const canvasMemory: UserMemoryEntry = {
+        id: crypto.randomUUID(),
+        userId,
+        type: "canvas",
+        title: `Canvas for: ${cookedIdea.refinedIdea.slice(0, 70)}`,
+        facts: [
+          `Value prop: ${parsedResult.valueProposition.slice(0, 80)}`,
+          `Revenue streams: ${parsedResult.revenueStreams.slice(0, 80)}`,
+          `Key activities: ${parsedResult.keyActivities.slice(0, 60)}`,
+        ],
+        createdAt: Date.now(),
+      }
+      setUserMemory(current => [canvasMemory, ...(current ?? [])].slice(0, 20))
+
       toast.success("Business Canvas generated successfully!")
       
       setTimeout(() => {
@@ -286,6 +330,20 @@ CRITICAL: Return ONLY valid JSON.`
       console.log("Pitch Deck has", parsedResult.slides?.length || 0, "slides")
       
       setPitchDeck(parsedResult)
+
+      const pitchMemory: UserMemoryEntry = {
+        id: crypto.randomUUID(),
+        userId,
+        type: "pitch",
+        title: `Pitch for: ${cookedIdea.refinedIdea.slice(0, 70)}`,
+        facts: [
+          `Summary: ${parsedResult.executiveSummary.slice(0, 100)}`,
+          `Slides: ${parsedResult.slides?.length ?? 0} slides generated`,
+        ],
+        createdAt: Date.now(),
+      }
+      setUserMemory(current => [pitchMemory, ...(current ?? [])].slice(0, 20))
+
       toast.success("Pitch Deck generated successfully!")
       
       setTimeout(() => {
