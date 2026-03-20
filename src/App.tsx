@@ -672,31 +672,37 @@ CRITICAL REMINDERS:
           </AnimatePresence>
 
           <Tabs defaultValue="generate" className="w-full">
-            <TabsList className={`grid w-full max-w-4xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-6" : "grid-cols-5"}`}>
-              <TabsTrigger value="generate" className="gap-2">
-                <Lightbulb size={18} weight="bold" />
-                Strategy
+            <TabsList className={`grid w-full max-w-4xl mx-auto mb-8 grid-cols-3 sm:grid-cols-3 md:grid-cols-5 ${user.role === "admin" ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
+              <TabsTrigger value="generate" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
+                <Lightbulb size={16} weight="bold" className="sm:size-[18px]" />
+                <span className="hidden sm:inline">Strategy</span>
+                <span className="inline sm:hidden">Strategy</span>
               </TabsTrigger>
-              <TabsTrigger value="ideas" className="gap-2">
-                <Sparkle size={18} weight="bold" />
-                Ideas
+              <TabsTrigger value="ideas" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
+                <Sparkle size={16} weight="bold" className="sm:size-[18px]" />
+                <span className="hidden sm:inline">Ideas</span>
+                <span className="inline sm:hidden">Ideas</span>
               </TabsTrigger>
-              <TabsTrigger value="plagiarism" className="gap-2">
-                <MagnifyingGlass size={18} weight="bold" />
-                Review
+              <TabsTrigger value="plagiarism" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
+                <MagnifyingGlass size={16} weight="bold" className="sm:size-[18px]" />
+                <span className="hidden sm:inline">Review</span>
+                <span className="inline sm:hidden">Review</span>
               </TabsTrigger>
-              <TabsTrigger value="dashboard" className="gap-2">
-                <ChartBar size={18} weight="bold" />
-                Dashboard
+              <TabsTrigger value="dashboard" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
+                <ChartBar size={16} weight="bold" className="sm:size-[18px]" />
+                <span className="hidden sm:inline">Dashboard</span>
+                <span className="inline sm:hidden">Stats</span>
               </TabsTrigger>
-              <TabsTrigger value="saved" className="gap-2">
-                <FolderOpen size={18} weight="bold" />
-                Saved ({savedStrategies?.length || 0})
+              <TabsTrigger value="saved" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3">
+                <FolderOpen size={16} weight="bold" className="sm:size-[18px]" />
+                <span className="hidden sm:inline">Saved ({savedStrategies?.length || 0})</span>
+                <span className="inline sm:hidden">Saved</span>
               </TabsTrigger>
               {user.role === "admin" && (
-                <TabsTrigger value="admin" className="gap-2">
-                  <ShieldCheck size={18} weight="bold" />
-                  Admin
+                <TabsTrigger value="admin" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-col sm:flex-row py-2 sm:py-1.5 px-1 sm:px-3 col-span-3 sm:col-span-1">
+                  <ShieldCheck size={16} weight="bold" className="sm:size-[18px]" />
+                  <span className="hidden sm:inline">Admin</span>
+                  <span className="inline sm:hidden">Admin</span>
                 </TabsTrigger>
               )}
             </TabsList>
