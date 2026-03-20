@@ -47,7 +47,7 @@ export function WelcomeBanner({ user }: WelcomeBannerProps) {
     const interval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - sessionStartRef.current) / 1000)
       setSessionDuration(elapsed)
-    }, 1000)
+    }, 5000)
 
     return () => clearInterval(interval)
   }, [])

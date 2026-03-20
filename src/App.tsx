@@ -178,7 +178,7 @@ function App() {
 
       return () => clearTimeout(timer)
     }
-  }, [showExpandedWelcome, hasShownWelcomeThisSession])
+  }, [])
 
   const isValidInput = description.trim().length >= 10
   const charCount = description.length
