@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils"
 import { getFeatureEntitlements, upgradeToPro } from "@/lib/subscription"
 import { exportStrategyAsPDF } from "@/lib/pdf-export"
 import { exportStrategyAsWord } from "@/lib/document-export"
-import { estimateGenerationCostCents, estimatePromptTokens, getCurrentMonthKey, getExportPlanConfig, getStrategyPlanConfig } from "@/lib/strategy-governance"
+import { estimateGenerationCostCents, estimatePromptTokens, getCurrentMonthKey, getExportPlanConfig, getStrategyPlanConfig, loadBudgetLimits } from "@/lib/strategy-governance"
 
 interface PromptMemoryItem {
   prompt: string
@@ -150,7 +150,6 @@ function App() {
       setUser(currentUser)
       if (currentUser) {
         setUserIdForKV(currentUser.id)
-        // Only show welcome banner once per login session.
         setHasShownWelcomeThisSession((alreadyShown) => {
           if (!alreadyShown) {
             setShowExpandedWelcome(true)
@@ -162,6 +161,10 @@ function App() {
       setIsCheckingAuth(false)
     }
     checkAuth()
+  }, [])
+
+  useEffect(() => {
+    loadBudgetLimits()
   }, [])
 
   useEffect(() => {

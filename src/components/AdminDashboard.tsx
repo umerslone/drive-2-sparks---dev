@@ -52,12 +52,14 @@ import {
   ArrowCounterClockwise,
   Link as LinkIcon,
   ArrowsClockwise,
+  CurrencyDollar,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { UserProfile, UserRole, SavedStrategy, SavedReviewDocument } from "@/types"
 import { adminService } from "@/lib/admin"
 import { ErrorLogsViewer } from "@/components/ErrorLogsViewer"
 import { InviteManager } from "@/components/InviteManager"
+import { BudgetConfigManager } from "@/components/BudgetConfigManager"
 
 export function AdminDashboard() {
   const [users, setUsers] = useState<UserProfile[]>([])
@@ -493,10 +495,14 @@ export function AdminDashboard() {
         >
           <Tabs defaultValue="users" className="w-full">
             <div className="mb-4 overflow-x-auto pb-1">
-              <TabsList className="grid min-w-[900px] grid-cols-5">
+              <TabsList className="grid min-w-[900px] grid-cols-6">
                 <TabsTrigger value="users" className="gap-2">
                   <Users size={18} weight="bold" />
                   User Management
+                </TabsTrigger>
+                <TabsTrigger value="budget" className="gap-2">
+                  <CurrencyDollar size={18} weight="bold" />
+                  Budget & Limits
                 </TabsTrigger>
                 <TabsTrigger value="strategies" className="gap-2">
                   <FolderOpen size={18} weight="bold" />
@@ -516,6 +522,10 @@ export function AdminDashboard() {
                 </TabsTrigger>
               </TabsList>
             </div>
+
+            <TabsContent value="budget">
+              <BudgetConfigManager />
+            </TabsContent>
 
             <TabsContent value="users">
               <Card>

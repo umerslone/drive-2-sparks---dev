@@ -14,7 +14,16 @@ export interface ExportPlanConfig {
   allowWordExport: boolean
 }
 
-const PLAN_CONFIG: Record<SubscriptionPlan, StrategyPlanConfig> = {
+export interface BudgetLimits {
+  basicMonthlyBudgetCents: number
+  basicMaxSavedStrategies: number
+  basicMonthlyExports: number
+  proMonthlyBudgetCents: number
+  proMaxSavedStrategies: number
+  proMonthlyExports: number
+}
+
+const DEFAULT_PLAN_CONFIG: Record<SubscriptionPlan, StrategyPlanConfig> = {
   basic: {
     plan: "basic",
     maxSavedStrategies: 20,
@@ -31,7 +40,7 @@ const PLAN_CONFIG: Record<SubscriptionPlan, StrategyPlanConfig> = {
   },
 }
 
-const EXPORT_PLAN_CONFIG: Record<SubscriptionPlan, ExportPlanConfig> = {
+const DEFAULT_EXPORT_PLAN_CONFIG: Record<SubscriptionPlan, ExportPlanConfig> = {
   basic: {
     plan: "basic",
     monthlyExports: 5,
@@ -44,12 +53,58 @@ const EXPORT_PLAN_CONFIG: Record<SubscriptionPlan, ExportPlanConfig> = {
   },
 }
 
+let cachedBudgetLimits: BudgetLimits | null = null
+
+export async function loadBudgetLimits() {
+  try {
+    cachedBudgetLimits = await spark.kv.get<BudgetLimits>("admin-budget-limits") || null
+  } catch (error) {
+    console.error("Failed to load admin budget limits:", error)
+  }
+}
+
 export function getStrategyPlanConfig(plan: SubscriptionPlan): StrategyPlanConfig {
-  return PLAN_CONFIG[plan]
+  if (cachedBudgetLimits) {
+    if (plan === "basic") {
+      return {
+        plan: "basic",
+        maxSavedStrategies: cachedBudgetLimits.basicMaxSavedStrategies,
+        monthlyBudgetCents: cachedBudgetLimits.basicMonthlyBudgetCents,
+        enableQaLoop: false,
+        maxWorkflowRetries: 1,
+      }
+    } else {
+      return {
+        plan: "pro",
+        maxSavedStrategies: cachedBudgetLimits.proMaxSavedStrategies,
+        monthlyBudgetCents: cachedBudgetLimits.proMonthlyBudgetCents,
+        enableQaLoop: true,
+        maxWorkflowRetries: 3,
+      }
+    }
+  }
+  
+  return DEFAULT_PLAN_CONFIG[plan]
 }
 
 export function getExportPlanConfig(plan: SubscriptionPlan): ExportPlanConfig {
-  return EXPORT_PLAN_CONFIG[plan]
+  if (cachedBudgetLimits) {
+    if (plan === "basic") {
+      return {
+        plan: "basic",
+        monthlyExports: cachedBudgetLimits.basicMonthlyExports,
+        allowWordExport: false,
+      }
+    } else {
+      return {
+        plan: "pro",
+        monthlyExports: cachedBudgetLimits.proMonthlyExports,
+        allowWordExport: true,
+      }
+    }
+  }
+  
+  return DEFAULT_EXPORT_PLAN_CONFIG[plan]
 }
 
 export function estimatePromptTokens(text: string): number {
