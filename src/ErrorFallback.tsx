@@ -1,5 +1,5 @@
 import { Alert, AlertTitle, AlertDescription } from "./components/ui/alert";
-import { ArrowClockwise } from "@phosphor-icons/
+import { Button } from "./components/ui/button";
 import { ArrowClockwise } from "@phosphor-icons/react";
 
 export const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) => {
@@ -15,21 +15,18 @@ export const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error; res
           </AlertDescription>
         </Alert>
         
-            {error.message}
+        <div className="text-sm text-muted-foreground p-4 bg-muted rounded-lg">
+          <pre className="whitespace-pre-wrap break-words">{error.message}</pre>
         </div>
+        
         <Button 
+          onClick={resetErrorBoundary}
           variant="outline"
+          className="gap-2"
         >
-          Try 
-
-  );
-
-
-
-
-
-
-
+          <ArrowClockwise size={16} />
+          Try Again
+        </Button>
       </div>
     </div>
   );
