@@ -1,36 +1,25 @@
 import { Alert, AlertTitle, AlertDescription } from "./components/ui/alert"
 import { Button } from "./components/ui/button"
 
-  resetErrorBoundary 
-  error: 
-}) {
-    <
-        <Alert
-          <AlertDescription clas
-    
-        
-          <p className="font-mono text-xs break-all">{error.message}</p>
-        
-          <Button onClick={resetError
-          </Button>
-            Refresh page
-        </div>
-    </div>
+interface ErrorFallbackProps {
+  error: Error
+  resetErrorBoundary: () => void
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+export function ErrorFallback({ error, resetErrorBoundary }: ErrorFallbackProps) {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <div className="max-w-md w-full">
+        <Alert variant="destructive">
+          <AlertTitle>Something went wrong</AlertTitle>
+          <AlertDescription className="space-y-4">
+            <p className="font-mono text-xs break-all">{error.message}</p>
+            <Button onClick={resetErrorBoundary} variant="outline" size="sm">
+              Refresh page
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    </div>
+  )
+}
