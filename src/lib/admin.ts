@@ -9,6 +9,12 @@ interface StoredCredential {
   userId: string
 }
 
+function getCurrentMonthKey(prefix: string): string {
+  const now = new Date()
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  return `${prefix}-${month}`
+}
+
 async function simpleHash(text: string): Promise<string> {
   const encoder = new TextEncoder()
   const data = encoder.encode(text)
@@ -126,7 +132,14 @@ export const adminService = {
 
       await spark.kv.delete(`saved-strategies-${user.id}`)
       await spark.kv.delete(`saved-reviews-${user.id}`)
+      await spark.kv.delete(`saved-ideas-${user.id}`)
+      await spark.kv.delete(`idea-memory-${user.id}`)
+      await spark.kv.delete(`document-reviews-${user.id}`)
       await spark.kv.delete(`user-prompt-memory-${user.id}`)
+      await spark.kv.delete(`strategy-workflow-runs-${user.id}`)
+      await spark.kv.delete(`${getCurrentMonthKey("strategy-spend")}-${user.id}`)
+      await spark.kv.delete(`${getCurrentMonthKey("strategy-exports")}-${user.id}`)
+      await spark.kv.delete(`${getCurrentMonthKey("review-exports")}-${user.id}`)
 
       return { success: true }
     } catch (error) {

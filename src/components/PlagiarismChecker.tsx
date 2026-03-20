@@ -186,6 +186,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
       return
     }
 
+    setText("")
     setIsUploading(true)
     setUploadProgress(5)
     setUploadStatus(`Uploading ${file.name}...`)
@@ -860,18 +861,64 @@ Return ONLY a valid JSON object:
             <label htmlFor="plagiarism-text" className="block text-sm font-medium mb-2">
               Document Text
             </label>
+            
+            {(text.includes("data:application/") || text.includes("base64,")) && (
+              <Alert variant="destructive" className="mb-3">
+                <WarningCircle size={18} weight="fill" />
+                <AlertDescription>
+                  The text area contains encoded file data instead of readable text. Please use the upload button above to upload your document, or paste plain text directly.
+                  <Button
+                    onClick={() => {
+                      setText("")
+                      setShowUpload(true)
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 w-full"
+                  >
+                    Clear & Show Upload
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+            
             <Textarea
               id="plagiarism-text"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value
+                if (value.includes("data:application/") || value.includes("base64,")) {
+                  toast.error("Please upload a file using the upload button instead of pasting encoded data.")
+                  return
+                }
+                setText(value)
+              }}
               placeholder="Paste your text here or upload a document above..."
               className="min-h-64 resize-none"
               maxLength={50000}
             />
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-2">
-              <p className="text-xs text-muted-foreground">
-                {text.length.toLocaleString()} / 50,000 characters
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-muted-foreground">
+                  {text.length.toLocaleString()} / 50,000 characters
+                </p>
+                {text.length > 0 && (
+                  <Button
+                    onClick={() => {
+                      setText("")
+                      setFileName(null)
+                      setResult(null)
+                      setHumanizedResult(null)
+                      toast.info("Text cleared")
+                    }}
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-6"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   onClick={humanizeText}
@@ -898,9 +945,16 @@ Return ONLY a valid JSON object:
 
                 <Button
                   onClick={checkPlagiarism}
-                  disabled={!text.trim() || text.trim().length < 50 || isChecking || isUploading}
+                  disabled={
+                    !text.trim() || 
+                    text.trim().length < 50 || 
+                    isChecking || 
+                    isUploading ||
+                    text.includes("data:application/") ||
+                    text.includes("base64,")
+                  }
                   size="sm"
-                  className="gap-2"
+                  className="gap-2 bg-primary hover:bg-primary/90"
                 >
                   {isChecking ? (
                     <>Analyzing...</>

@@ -213,7 +213,7 @@ export const authService = {
             return normalized
           }
         }
-      } catch (githubError) {
+      } catch {
         console.log("GitHub auth not available, using email/password auth")
       }
 
@@ -248,7 +248,7 @@ export const authService = {
         if (githubUser?.avatarUrl && user.id === githubUser.id) {
           updatedUser.avatarUrl = githubUser.avatarUrl
         }
-      } catch (e) {
+      } catch {
         console.log("GitHub not available for avatar update")
       }
       

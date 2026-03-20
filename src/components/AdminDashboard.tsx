@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -41,7 +41,6 @@ import {
   User,
   Sparkle,
   Trash,
-  UserSwitch,
   ChartBar,
   FolderOpen,
   MagnifyingGlass,
@@ -98,13 +97,7 @@ export function AdminDashboard() {
     }
   }
 
-  useEffect(() => {
-    loadData()
-    const intervalId = setInterval(loadData, 30000)
-    return () => clearInterval(intervalId)
-  }, [])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
       const [allUsers, strategies, reviews] = await Promise.all([
@@ -125,7 +118,13 @@ export function AdminDashboard() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+    const intervalId = setInterval(loadData, 30000)
+    return () => clearInterval(intervalId)
+  }, [loadData])
 
   const handleRoleChange = async (email: string, newRole: UserRole) => {
     if (email === "admin") {
@@ -147,7 +146,7 @@ export function AdminDashboard() {
       } else {
         toast.error(result.error || "Failed to update role")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to update role")
     } finally {
       setRoleChangeTarget(null)
@@ -174,7 +173,7 @@ export function AdminDashboard() {
       } else {
         toast.error(result.error || "Failed to delete user")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete user")
     } finally {
       setDeleteTarget(null)
@@ -192,7 +191,7 @@ export function AdminDashboard() {
       } else {
         toast.error(result.error || "Failed to update password")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to update password")
     }
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -24,14 +24,14 @@ export function InviteManager({ user }: InviteManagerProps) {
   const [invites, setInvites] = useState<InviteLink[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
-  useEffect(() => {
-    loadInvites()
-  }, [])
-
-  const loadInvites = async () => {
+  const loadInvites = useCallback(async () => {
     const links = await inviteService.getInviteLinks(user.id)
     setInvites(links)
-  }
+  }, [user.id])
+
+  useEffect(() => {
+    loadInvites()
+  }, [loadInvites])
 
   const handleGenerateInvite = async () => {
     setIsLoading(true)
