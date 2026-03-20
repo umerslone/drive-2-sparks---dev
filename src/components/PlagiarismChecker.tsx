@@ -25,7 +25,9 @@ import { PlagiarismResult, DocumentReviewResult, HumanizedResult, SavedReviewDoc
 import { useKV } from "@github/spark/hooks"
 import { SaveReviewDialog } from "@/components/SaveReviewDialog"
 import { SavedReviews } from "@/components/SavedReviews"
+import { performAdvancedDetection } from "@/lib/advanced-detection"
 import { exportReviewToPDF } from "@/lib/pdf-export"
+import { performEnhancedPlagiarismCheck } from "@/lib/enhanced-plagiarism"
 import { computeReviewAnalysis, ReviewComputationMeta, ReviewFilters, SectionSummary } from "@/lib/review-engine"
 import { addProCredits, consumeProCredits, getFeatureEntitlements, upgradeToPro } from "@/lib/subscription"
 import { getCurrentMonthKey, getExportPlanConfig } from "@/lib/strategy-governance"
@@ -675,83 +677,16 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     setHumanizedResult(null)
 
     try {
-      const prompt = spark.llmPrompt`You are an advanced plagiarism detection and academic integrity system. Analyze the following text comprehensively.
 
-Text to analyze:
-${text}
 
-Perform the following analysis:
-1. Detect potential plagiarism by identifying passages that may be copied from external sources
-2. Detect AI-generated content using linguistic patterns, repetitive structures, and unnatural phrasing
-3. Evaluate if the text is ready for Turnitin submission
-4. Check references and sources mentioned in the text for validity
-5. Identify potential source matches
-6. Provide improvement recommendations
 
-CRITICAL: Return ONLY a valid JSON object with NO markdown, NO code blocks, NO text before or after.
 
-Required JSON structure:
-{
-  "overallScore": <number 0-100, where 100 is completely original>,
-  "plagiarismPercentage": <number 0-100>,
-  "aiContentPercentage": <number 0-100>,
-  "highlights": [
-    {
-      "text": "<excerpt of potentially plagiarized text>",
-      "startIndex": <approximate character position>,
-      "endIndex": <approximate end position>,
-      "severity": "<high|medium|low>",
-      "source": "<potential source if identified>"
-    }
-  ],
-  "aiHighlights": [
-    {
-      "text": "<excerpt of AI-detected text>",
-      "startIndex": <approximate character position>,
-      "endIndex": <approximate end position>,
-      "confidence": <number 0-100>
-    }
-  ],
-  "summary": "<2-3 paragraph summary of the document>",
-  "recommendations": ["<recommendation 1>", "<recommendation 2>", "..."],
-  "turnitinReady": <boolean>,
-  "validReferences": [
-    {
-      "reference": "<reference text>",
-      "isValid": <boolean>,
-      "reason": "<explanation>"
-    }
-  ],
-  "detectedSources": [
-    {
-      "source": "<source name or URL>",
-      "similarity": <number 0-100>
-    }
-  ]
-}`
 
-      const response = await spark.llm(prompt, "gpt-4o", true)
-      
-      let cleanedResponse = response.trim()
-      
-      if (cleanedResponse.startsWith("```json")) {
-        cleanedResponse = cleanedResponse.replace(/^```json\s*/, "").replace(/```\s*$/, "")
-      } else if (cleanedResponse.startsWith("```")) {
-        cleanedResponse = cleanedResponse.replace(/^```\s*/, "").replace(/```\s*$/, "")
-      }
-      
-      cleanedResponse = cleanedResponse.trim()
-      
-      const firstBrace = cleanedResponse.indexOf('{')
-      const lastBrace = cleanedResponse.lastIndexOf('}')
-      
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1)
-      }
-      
-      const parsedResult = JSON.parse(cleanedResponse) as PlagiarismResult
-      const enriched = computeReviewAnalysis(text, parsedResult, activeReviewFilters)
+      // Use enhanced plagiarism detection with advanced algorithms
+      const { result: enrichedResult, advancedMetrics } = await performEnhancedPlagiarismCheck(text, spark)
 
+      // Further enhance with local review analysis
+  const enriched = computeReviewAnalysis(text, enrichedResult, activeReviewFilters)
       setResult(enriched.result)
       setReviewMeta(enriched.meta)
       setSectionSummaries(enriched.sections)
