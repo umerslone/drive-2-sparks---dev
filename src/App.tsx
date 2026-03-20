@@ -56,6 +56,7 @@ const CONCEPT_MODE_INSTRUCTION: Record<ConceptMode, string> = {
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const [userIdForKV, setUserIdForKV] = useState<string>("temp")
   const [description, setDescription] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<MarketingResult | null>(null)
@@ -64,11 +65,11 @@ function App() {
   const [showExpandedWelcome, setShowExpandedWelcome] = useState(true)
   const [shouldShowTopNotch, setShouldShowTopNotch] = useState(false)
   const [savedStrategies, setSavedStrategies] = useKV<SavedStrategy[]>(
-    user ? `saved-strategies-${user.id}` : "saved-strategies-temp",
+    `saved-strategies-${userIdForKV}`,
     []
   )
   const [promptMemory, setPromptMemory] = useKV<PromptMemoryItem[]>(
-    user ? `user-prompt-memory-${user.id}` : "user-prompt-memory-temp",
+    `user-prompt-memory-${userIdForKV}`,
     []
   )
   const [knowledgebaseConcepts, setKnowledgebaseConcepts] = useKV<KnowledgebaseConcept[]>("knowledgebase-concepts", [])
@@ -85,6 +86,9 @@ function App() {
       await authService.initializeMasterAdmin()
       const currentUser = await authService.getCurrentUser()
       setUser(currentUser)
+      if (currentUser) {
+        setUserIdForKV(currentUser.id)
+      }
       setIsCheckingAuth(false)
     }
     checkAuth()
