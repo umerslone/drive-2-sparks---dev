@@ -333,7 +333,164 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     }
   }
 
-  const preprocessCanvasForOcr = (source: HTMLCanvasElement): HTMLCanvasElement => {
+  const applyGaussianBlur = (imageData: ImageData, radius: number): ImageData => {
+    const { data, width, height } = imageData
+    const output = new ImageData(width, height)
+    const kernel = Math.ceil(radius) * 2 + 1
+    const sigma = radius / 2
+    const weights: number[] = []
+    let weightSum = 0
+
+    for (let i = 0; i < kernel; i++) {
+      const x = i - Math.floor(kernel / 2)
+      const weight = Math.exp(-(x * x) / (2 * sigma * sigma))
+      weights.push(weight)
+      weightSum += weight
+    }
+
+    for (let i = 0; i < weights.length; i++) {
+      weights[i] /= weightSum
+    }
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let r = 0, g = 0, b = 0
+
+        for (let k = 0; k < kernel; k++) {
+          const xk = x + k - Math.floor(kernel / 2)
+          if (xk >= 0 && xk < width) {
+            const idx = (y * width + xk) * 4
+            r += data[idx] * weights[k]
+            g += data[idx + 1] * weights[k]
+            b += data[idx + 2] * weights[k]
+          }
+        }
+
+        const idx = (y * width + x) * 4
+        output.data[idx] = r
+        output.data[idx + 1] = g
+        output.data[idx + 2] = b
+        output.data[idx + 3] = data[idx + 3]
+      }
+    }
+
+    return output
+  }
+
+  const applyAdaptiveThreshold = (imageData: ImageData, windowSize: number): ImageData => {
+    const { data, width, height } = imageData
+    const output = new ImageData(width, height)
+    const halfWindow = Math.floor(windowSize / 2)
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let sum = 0
+        let count = 0
+
+        for (let wy = Math.max(0, y - halfWindow); wy < Math.min(height, y + halfWindow + 1); wy++) {
+          for (let wx = Math.max(0, x - halfWindow); wx < Math.min(width, x + halfWindow + 1); wx++) {
+            const idx = (wy * width + wx) * 4
+            const gray = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
+            sum += gray
+            count++
+          }
+        }
+
+        const threshold = sum / count - 10
+        const idx = (y * width + x) * 4
+        const gray = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
+        const value = gray > threshold ? 255 : 0
+
+        output.data[idx] = value
+        output.data[idx + 1] = value
+        output.data[idx + 2] = value
+        output.data[idx + 3] = 255
+      }
+    }
+
+    return output
+  }
+
+  const sharpenImage = (imageData: ImageData): ImageData => {
+    const { data, width, height } = imageData
+    const output = new ImageData(width, height)
+    
+    const kernel = [
+      0, -1, 0,
+      -1, 5, -1,
+      0, -1, 0
+    ]
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let r = 0, g = 0, b = 0
+
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const idx = ((y + ky) * width + (x + kx)) * 4
+            const kernelIdx = (ky + 1) * 3 + (kx + 1)
+            const weight = kernel[kernelIdx]
+            
+            r += data[idx] * weight
+            g += data[idx + 1] * weight
+            b += data[idx + 2] * weight
+          }
+        }
+
+        const idx = (y * width + x) * 4
+        output.data[idx] = Math.min(255, Math.max(0, r))
+        output.data[idx + 1] = Math.min(255, Math.max(0, g))
+        output.data[idx + 2] = Math.min(255, Math.max(0, b))
+        output.data[idx + 3] = 255
+      }
+    }
+
+    for (let i = 0; i < data.length; i++) {
+      if (output.data[i] === 0) {
+        output.data[i] = data[i]
+      }
+    }
+
+    return output
+  }
+
+  const removeSaltAndPepperNoise = (imageData: ImageData): ImageData => {
+    const { data, width, height } = imageData
+    const output = new ImageData(width, height)
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const neighbors: number[] = []
+        
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const idx = ((y + dy) * width + (x + dx)) * 4
+            const gray = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
+            neighbors.push(gray)
+          }
+        }
+
+        neighbors.sort((a, b) => a - b)
+        const median = neighbors[Math.floor(neighbors.length / 2)]
+
+        const idx = (y * width + x) * 4
+        output.data[idx] = median
+        output.data[idx + 1] = median
+        output.data[idx + 2] = median
+        output.data[idx + 3] = 255
+      }
+    }
+
+    for (let i = 0; i < data.length; i++) {
+      if (output.data[i] === 0) {
+        output.data[i] = data[i]
+      }
+    }
+
+    return output
+  }
+
+  const preprocessCanvasForOcr = (source: HTMLCanvasElement, filterMode: "standard" | "aggressive" = "standard"): HTMLCanvasElement => {
     const canvas = document.createElement("canvas")
     canvas.width = source.width
     canvas.height = source.height
@@ -344,21 +501,28 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     }
 
     ctx.drawImage(source, 0, 0)
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const { data } = imageData
+    let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i]
-      const g = data[i + 1]
-      const b = data[i + 2]
+    if (filterMode === "aggressive") {
+      imageData = removeSaltAndPepperNoise(imageData)
+      imageData = applyGaussianBlur(imageData, 1.2)
+      imageData = sharpenImage(imageData)
+      imageData = applyAdaptiveThreshold(imageData, 15)
+    } else {
+      const { data } = imageData
 
-      // Grayscale + threshold improves OCR on low-contrast scanned pages.
-      const grayscale = 0.299 * r + 0.587 * g + 0.114 * b
-      const thresholded = grayscale > 180 ? 255 : 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i]
+        const g = data[i + 1]
+        const b = data[i + 2]
 
-      data[i] = thresholded
-      data[i + 1] = thresholded
-      data[i + 2] = thresholded
+        const grayscale = 0.299 * r + 0.587 * g + 0.114 * b
+        const thresholded = grayscale > 180 ? 255 : 0
+
+        data[i] = thresholded
+        data[i + 1] = thresholded
+        data[i + 2] = thresholded
+      }
     }
 
     ctx.putImageData(imageData, 0, 0)
@@ -405,16 +569,29 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
         const firstPass = firstPassText.trim()
         let bestText = firstPass
 
-        // If first pass is too short, try a thresholded second pass.
         if (firstPass.length < 40) {
-          const enhancedCanvas = preprocessCanvasForOcr(canvas)
+          setUploadStatus(`Applying standard preprocessing to page ${pageNumber}...`)
+          const standardCanvas = preprocessCanvasForOcr(canvas, "standard")
           const {
             data: { text: secondPassText },
-          } = await worker.recognize(enhancedCanvas)
+          } = await worker.recognize(standardCanvas)
 
           const secondPass = secondPassText.trim()
           if (secondPass.length > bestText.length) {
             bestText = secondPass
+          }
+
+          if (bestText.length < 40) {
+            setUploadStatus(`Applying aggressive filters to page ${pageNumber}...`)
+            const aggressiveCanvas = preprocessCanvasForOcr(canvas, "aggressive")
+            const {
+              data: { text: thirdPassText },
+            } = await worker.recognize(aggressiveCanvas)
+
+            const thirdPass = thirdPassText.trim()
+            if (thirdPass.length > bestText.length) {
+              bestText = thirdPass
+            }
           }
         }
 
