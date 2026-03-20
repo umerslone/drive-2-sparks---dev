@@ -31,6 +31,7 @@ import { addProCredits, consumeProCredits, getFeatureEntitlements, upgradeToPro 
 import mammoth from "mammoth"
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
+import { createWorker } from "tesseract.js"
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -188,7 +189,6 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
         const arrayBuffer = await readArrayBufferWithProgress(file)
         setUploadStatus("Extracting text from PDF...")
         const extractedText = await extractTextFromPdf(arrayBuffer)
-        setUploadProgress(95)
 
         if (extractedText && extractedText.trim().length > 0) {
           setText(extractedText)
@@ -196,10 +196,21 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
           setUploadStatus(`PDF processed: ${extractedText.length.toLocaleString()} characters extracted.`)
           toast.success(`File "${file.name}" loaded successfully - ${extractedText.length} characters extracted`)
         } else {
-          toast.error("Could not extract text from PDF. If the PDF is scanned/image-based, please paste text manually.")
-          setUploadStatus("Upload failed: no selectable text found in PDF.")
-          setText("")
-          setFileName(null)
+          setUploadStatus("No selectable text found. Running OCR fallback...")
+          setUploadProgress(30)
+          const ocrText = await extractTextFromPdfWithOcr(arrayBuffer)
+
+          if (ocrText && ocrText.trim().length > 0) {
+            setText(ocrText)
+            setUploadProgress(100)
+            setUploadStatus(`PDF OCR complete: ${ocrText.length.toLocaleString()} characters extracted.`)
+            toast.success(`OCR completed for "${file.name}" - ${ocrText.length} characters extracted`)
+          } else {
+            toast.error("Could not extract readable text from this PDF, even with OCR. Please paste text manually.")
+            setUploadStatus("Upload failed: OCR could not detect readable text.")
+            setText("")
+            setFileName(null)
+          }
         }
       }
     } catch (error) {
@@ -253,6 +264,62 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     } catch (error) {
       console.error("PDF extraction error:", error)
       return ""
+    }
+  }
+
+  const extractTextFromPdfWithOcr = async (arrayBuffer: ArrayBuffer): Promise<string> => {
+    let worker: Awaited<ReturnType<typeof createWorker>> | null = null
+
+    try {
+      const loadingTask = getDocument({ data: new Uint8Array(arrayBuffer) })
+      const pdf = await loadingTask.promise
+      const pages: string[] = []
+
+      worker = await createWorker("eng", 1, {
+        logger: (message) => {
+          if (message.status === "recognizing text") {
+            const percent = Math.max(30, Math.min(98, Math.round(30 + message.progress * 68)))
+            setUploadProgress(percent)
+          }
+        },
+      })
+
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        setUploadStatus(`Running OCR on page ${pageNumber} of ${pdf.numPages}...`)
+        const page = await pdf.getPage(pageNumber)
+        const viewport = page.getViewport({ scale: 2 })
+        const canvas = document.createElement("canvas")
+        const context = canvas.getContext("2d")
+
+        if (!context) {
+          continue
+        }
+
+        canvas.width = Math.ceil(viewport.width)
+        canvas.height = Math.ceil(viewport.height)
+
+        await page.render({ canvasContext: context, viewport }).promise
+
+        const {
+          data: { text: ocrText },
+        } = await worker.recognize(canvas)
+
+        if (ocrText && ocrText.trim().length > 0) {
+          pages.push(ocrText.trim())
+        }
+
+        const pageProgress = Math.round((pageNumber / pdf.numPages) * 100)
+        setUploadProgress(Math.max(30, Math.min(99, pageProgress)))
+      }
+
+      return pages.join("\n\n").trim()
+    } catch (error) {
+      console.error("PDF OCR extraction error:", error)
+      return ""
+    } finally {
+      if (worker) {
+        await worker.terminate()
+      }
     }
   }
 

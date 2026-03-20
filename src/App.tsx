@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass } from "@phosphor-icons/react"
+import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check } from "@phosphor-icons/react"
 import { ResultCard } from "@/components/ResultCard"
 import { LoadingState } from "@/components/LoadingState"
 import { EmptyState } from "@/components/EmptyState"
@@ -18,7 +18,8 @@ import { Footer } from "@/components/Footer"
 import { PlagiarismChecker } from "@/components/PlagiarismChecker"
 import { IdeaGeneration } from "@/components/IdeaGeneration"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { toast } from "sonner"
 import { useKV } from "@github/spark/hooks"
 import { motion, AnimatePresence } from "framer-motion"
@@ -26,6 +27,7 @@ import { MarketingResult, SavedStrategy, UserProfile } from "@/types"
 import { authService } from "@/lib/auth"
 import { BRAND_THEME_STORAGE_KEY, DEFAULT_BRAND_THEME, isBrandThemeName, type BrandThemeName } from "@/lib/brand-theme"
 import { logError } from "@/lib/error-logger"
+import { cn } from "@/lib/utils"
 import {
   DEFAULT_KNOWLEDGEBASE_CONCEPTS,
   DEFAULT_KNOWLEDGE_FEED_ITEMS,
@@ -110,6 +112,7 @@ function App() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [conceptMode, setConceptMode] = useState<ConceptMode>("auto")
   const [showPromptSuggestions, setShowPromptSuggestions] = useState(false)
+  const [openConceptSelector, setOpenConceptSelector] = useState(false)
   const [brandTheme, setBrandTheme] = useState<BrandThemeName>(() => {
     if (typeof window === "undefined") {
       return DEFAULT_BRAND_THEME
@@ -727,67 +730,546 @@ FORMATTING GUIDELINES:
                   <label htmlFor="concept-mode" className="block text-sm font-semibold text-foreground mb-2">
                     Concept Mode
                   </label>
-                  <Select value={conceptMode} onValueChange={(value) => setConceptMode(value as ConceptMode)}>
-                    <SelectTrigger id="concept-mode" className="w-full">
-                      <SelectValue placeholder="Select concept mode" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[400px]">
-                      <SelectItem value="auto">🎯 Auto (Recommended)</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Technology & Digital</div>
-                      <SelectItem value="saas">SaaS Onboarding & Activation</SelectItem>
-                      <SelectItem value="ecommerce">E-commerce Concierge</SelectItem>
-                      <SelectItem value="telecom">Telecom & Network Services</SelectItem>
-                      <SelectItem value="media">Media & Content Management</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Business Services</div>
-                      <SelectItem value="sales">Sales Agent & Funnel</SelectItem>
-                      <SelectItem value="ops">Internal Ops Copilot</SelectItem>
-                      <SelectItem value="consulting">Consulting & Advisory</SelectItem>
-                      <SelectItem value="legal">Legal Services</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Finance & Banking</div>
-                      <SelectItem value="fintech">Fintech Onboarding & Risk</SelectItem>
-                      <SelectItem value="insurance">Insurance & Claims</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Healthcare & Wellness</div>
-                      <SelectItem value="healthcare">Healthcare Triage Assistant</SelectItem>
-                      <SelectItem value="wellness">Wellness & Fitness</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Education & Training</div>
-                      <SelectItem value="education">Education Coach</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Retail & Commerce</div>
-                      <SelectItem value="retail">Retail Management</SelectItem>
-                      <SelectItem value="fashion">Fashion & Apparel</SelectItem>
-                      <SelectItem value="beauty">Beauty & Cosmetics</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Hospitality & Travel</div>
-                      <SelectItem value="hospitality">Hospitality & Hotels</SelectItem>
-                      <SelectItem value="travel">Travel & Tourism</SelectItem>
-                      <SelectItem value="foodservice">Food Service & Restaurants</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Real Estate & Construction</div>
-                      <SelectItem value="realestate">Real Estate Management</SelectItem>
-                      <SelectItem value="construction">Construction & Project Management</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Industry & Manufacturing</div>
-                      <SelectItem value="manufacturing">Manufacturing & Production</SelectItem>
-                      <SelectItem value="logistics">Logistics & Supply Chain</SelectItem>
-                      <SelectItem value="energy">Energy & Utilities</SelectItem>
-                      <SelectItem value="agriculture">Agriculture & Farming</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Transportation & Automotive</div>
-                      <SelectItem value="automotive">Automotive Services</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Entertainment & Sports</div>
-                      <SelectItem value="entertainment">Entertainment & Events</SelectItem>
-                      <SelectItem value="sports">Sports & Athletics</SelectItem>
-                      
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Non-Profit & Social</div>
-                      <SelectItem value="nonprofit">Non-Profit Organizations</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Popover open={openConceptSelector} onOpenChange={setOpenConceptSelector}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        id="concept-mode"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={openConceptSelector}
+                        className="w-full justify-between font-normal"
+                      >
+                        {conceptMode === "auto" && "🎯 Auto (Recommended)"}
+                        {conceptMode === "saas" && "SaaS Onboarding & Activation"}
+                        {conceptMode === "ecommerce" && "E-commerce Concierge"}
+                        {conceptMode === "telecom" && "Telecom & Network Services"}
+                        {conceptMode === "media" && "Media & Content Management"}
+                        {conceptMode === "sales" && "Sales Agent & Funnel"}
+                        {conceptMode === "ops" && "Internal Ops Copilot"}
+                        {conceptMode === "consulting" && "Consulting & Advisory"}
+                        {conceptMode === "legal" && "Legal Services"}
+                        {conceptMode === "fintech" && "Fintech Onboarding & Risk"}
+                        {conceptMode === "insurance" && "Insurance & Claims"}
+                        {conceptMode === "healthcare" && "Healthcare Triage Assistant"}
+                        {conceptMode === "wellness" && "Wellness & Fitness"}
+                        {conceptMode === "education" && "Education Coach"}
+                        {conceptMode === "retail" && "Retail Management"}
+                        {conceptMode === "fashion" && "Fashion & Apparel"}
+                        {conceptMode === "beauty" && "Beauty & Cosmetics"}
+                        {conceptMode === "hospitality" && "Hospitality & Hotels"}
+                        {conceptMode === "travel" && "Travel & Tourism"}
+                        {conceptMode === "foodservice" && "Food Service & Restaurants"}
+                        {conceptMode === "realestate" && "Real Estate Management"}
+                        {conceptMode === "construction" && "Construction & Project Management"}
+                        {conceptMode === "manufacturing" && "Manufacturing & Production"}
+                        {conceptMode === "logistics" && "Logistics & Supply Chain"}
+                        {conceptMode === "energy" && "Energy & Utilities"}
+                        {conceptMode === "agriculture" && "Agriculture & Farming"}
+                        {conceptMode === "automotive" && "Automotive Services"}
+                        {conceptMode === "entertainment" && "Entertainment & Events"}
+                        {conceptMode === "sports" && "Sports & Athletics"}
+                        {conceptMode === "nonprofit" && "Non-Profit Organizations"}
+                        <CaretUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search industry vertical..." />
+                        <CommandList>
+                          <CommandEmpty>No industry vertical found.</CommandEmpty>
+                          
+                          <CommandGroup heading="Recommended">
+                            <CommandItem
+                              value="auto"
+                              onSelect={() => {
+                                setConceptMode("auto")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "auto" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              🎯 Auto (Recommended)
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Technology & Digital">
+                            <CommandItem
+                              value="saas onboarding activation"
+                              onSelect={() => {
+                                setConceptMode("saas")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "saas" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              SaaS Onboarding & Activation
+                            </CommandItem>
+                            <CommandItem
+                              value="ecommerce concierge"
+                              onSelect={() => {
+                                setConceptMode("ecommerce")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "ecommerce" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              E-commerce Concierge
+                            </CommandItem>
+                            <CommandItem
+                              value="telecom network services"
+                              onSelect={() => {
+                                setConceptMode("telecom")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "telecom" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Telecom & Network Services
+                            </CommandItem>
+                            <CommandItem
+                              value="media content management"
+                              onSelect={() => {
+                                setConceptMode("media")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "media" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Media & Content Management
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Business Services">
+                            <CommandItem
+                              value="sales agent funnel"
+                              onSelect={() => {
+                                setConceptMode("sales")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "sales" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Sales Agent & Funnel
+                            </CommandItem>
+                            <CommandItem
+                              value="ops internal copilot"
+                              onSelect={() => {
+                                setConceptMode("ops")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "ops" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Internal Ops Copilot
+                            </CommandItem>
+                            <CommandItem
+                              value="consulting advisory"
+                              onSelect={() => {
+                                setConceptMode("consulting")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "consulting" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Consulting & Advisory
+                            </CommandItem>
+                            <CommandItem
+                              value="legal services"
+                              onSelect={() => {
+                                setConceptMode("legal")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "legal" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Legal Services
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Finance & Banking">
+                            <CommandItem
+                              value="fintech onboarding risk"
+                              onSelect={() => {
+                                setConceptMode("fintech")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "fintech" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Fintech Onboarding & Risk
+                            </CommandItem>
+                            <CommandItem
+                              value="insurance claims"
+                              onSelect={() => {
+                                setConceptMode("insurance")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "insurance" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Insurance & Claims
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Healthcare & Wellness">
+                            <CommandItem
+                              value="healthcare triage assistant"
+                              onSelect={() => {
+                                setConceptMode("healthcare")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "healthcare" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Healthcare Triage Assistant
+                            </CommandItem>
+                            <CommandItem
+                              value="wellness fitness"
+                              onSelect={() => {
+                                setConceptMode("wellness")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "wellness" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Wellness & Fitness
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Education & Training">
+                            <CommandItem
+                              value="education coach"
+                              onSelect={() => {
+                                setConceptMode("education")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "education" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Education Coach
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Retail & Commerce">
+                            <CommandItem
+                              value="retail management"
+                              onSelect={() => {
+                                setConceptMode("retail")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "retail" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Retail Management
+                            </CommandItem>
+                            <CommandItem
+                              value="fashion apparel"
+                              onSelect={() => {
+                                setConceptMode("fashion")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "fashion" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Fashion & Apparel
+                            </CommandItem>
+                            <CommandItem
+                              value="beauty cosmetics"
+                              onSelect={() => {
+                                setConceptMode("beauty")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "beauty" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Beauty & Cosmetics
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Hospitality & Travel">
+                            <CommandItem
+                              value="hospitality hotels"
+                              onSelect={() => {
+                                setConceptMode("hospitality")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "hospitality" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Hospitality & Hotels
+                            </CommandItem>
+                            <CommandItem
+                              value="travel tourism"
+                              onSelect={() => {
+                                setConceptMode("travel")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "travel" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Travel & Tourism
+                            </CommandItem>
+                            <CommandItem
+                              value="foodservice restaurants"
+                              onSelect={() => {
+                                setConceptMode("foodservice")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "foodservice" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Food Service & Restaurants
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Real Estate & Construction">
+                            <CommandItem
+                              value="realestate management"
+                              onSelect={() => {
+                                setConceptMode("realestate")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "realestate" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Real Estate Management
+                            </CommandItem>
+                            <CommandItem
+                              value="construction project management"
+                              onSelect={() => {
+                                setConceptMode("construction")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "construction" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Construction & Project Management
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Industry & Manufacturing">
+                            <CommandItem
+                              value="manufacturing production"
+                              onSelect={() => {
+                                setConceptMode("manufacturing")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "manufacturing" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Manufacturing & Production
+                            </CommandItem>
+                            <CommandItem
+                              value="logistics supply chain"
+                              onSelect={() => {
+                                setConceptMode("logistics")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "logistics" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Logistics & Supply Chain
+                            </CommandItem>
+                            <CommandItem
+                              value="energy utilities"
+                              onSelect={() => {
+                                setConceptMode("energy")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "energy" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Energy & Utilities
+                            </CommandItem>
+                            <CommandItem
+                              value="agriculture farming"
+                              onSelect={() => {
+                                setConceptMode("agriculture")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "agriculture" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Agriculture & Farming
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Transportation & Automotive">
+                            <CommandItem
+                              value="automotive services"
+                              onSelect={() => {
+                                setConceptMode("automotive")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "automotive" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Automotive Services
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Entertainment & Sports">
+                            <CommandItem
+                              value="entertainment events"
+                              onSelect={() => {
+                                setConceptMode("entertainment")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "entertainment" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Entertainment & Events
+                            </CommandItem>
+                            <CommandItem
+                              value="sports athletics"
+                              onSelect={() => {
+                                setConceptMode("sports")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "sports" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Sports & Athletics
+                            </CommandItem>
+                          </CommandGroup>
+                          
+                          <CommandGroup heading="Non-Profit & Social">
+                            <CommandItem
+                              value="nonprofit organizations"
+                              onSelect={() => {
+                                setConceptMode("nonprofit")
+                                setOpenConceptSelector(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  conceptMode === "nonprofit" ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Non-Profit Organizations
+                            </CommandItem>
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                   <p className="text-xs text-muted-foreground mt-2">
                     Choose a domain lens for strategy depth, or keep Auto to let AI select the best archetypes.
                   </p>
