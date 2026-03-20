@@ -101,15 +101,16 @@ export function AdminDashboard() {
     try {
       const [allUsers, strategies, reviews] = await Promise.all([
         adminService.getAllUsers(),
+        adminService.getAllStrategies(),
         adminService.getAllReviews(),
       ])
 
-
       const syncedStats = buildStats(allUsers, strategies, reviews)
 
-      setStats(syncedStats)
-      setStats(syncedStats)
+      setUsers(allUsers)
+      setAllStrategies(strategies)
       setAllReviews(reviews)
+      setStats(syncedStats)
     } catch (error) {
       console.error("Failed to load admin data:", error)
       toast.error("Failed to load admin data")
