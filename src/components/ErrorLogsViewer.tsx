@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { errorLogger } from "@/lib/error-logger"
@@ -31,7 +30,7 @@ export function ErrorLogsViewer({ userId }: ErrorLogsViewerProps) {
     recentErrors: number
   } | null>(null)
 
-  const loadErrorLogs = async () => {
+  const loadErrorLogs = useCallback(async () => {
     setIsLoading(true)
     try {
       const filters: {
@@ -65,11 +64,11 @@ export function ErrorLogsViewer({ userId }: ErrorLogsViewerProps) {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [selectedCategory, selectedSeverity, showResolved, userId])
 
   useEffect(() => {
     loadErrorLogs()
-  }, [selectedCategory, selectedSeverity, showResolved, userId])
+  }, [loadErrorLogs])
 
   const handleMarkResolved = async (errorId: string) => {
     try {

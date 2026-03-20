@@ -1,16 +1,10 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { DownloadSimple, FileDoc } from "@phosphor-icons/react"
+import { FileDoc } from "@phosphor-icons/react"
 import { motion } from "framer-motion"
 import { BusinessCanvasModel } from "@/types"
 import { toast } from "sonner"
 import { exportBusinessCanvasAsWord } from "@/lib/document-export"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 interface BusinessCanvasViewProps {
   canvas: BusinessCanvasModel

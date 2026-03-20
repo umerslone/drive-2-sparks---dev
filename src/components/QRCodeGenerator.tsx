@@ -36,8 +36,9 @@ export function QRCodeGenerator({ value, size = 256, level = "M", includeMargin 
     }
 
     // Using QR server API for reliable QR generation
-    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodedValue}&format=png`
-  }, [value, size])
+    const margin = includeMargin ? 10 : 0
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodedValue}&format=png&ecc=${level}&margin=${margin}`
+  }, [value, size, level, includeMargin])
 
   return (
     <canvas
