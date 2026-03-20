@@ -34,11 +34,31 @@ This is a focused tool with clear input-output flow, user authentication, profil
 - **Success criteria**: Users see only their own saved strategies, and data persists across sessions
 
 ### AI Marketing Generation (Universal)
-- **Functionality**: Accepts any topic, product, or service description and generates three marketing components: persuasive copy, visual strategy, and target audience recommendation
-- **Purpose**: Provides instant, professional marketing insights for any subject matter to help users effectively promote their ideas or offerings
-- **Trigger**: User enters description in textarea and clicks "Generate Strategy" button
-- **Progression**: User types description → Clicks generate button → Loading state displays → AI processes request → Results appear in three distinct sections with smooth animation → User can save with custom name or generate new strategy
-- **Success criteria**: All three components (copy, visual strategy, audience) are clearly generated, well-formatted, and immediately actionable for any topic
+- **Functionality**: Accepts any topic, product, or service description and generates comprehensive marketing strategies with eight components: persuasive copy, visual strategy, target audience recommendation, application workflow, UI workflow, database workflow, mobile workflow, and implementation checklist
+- **Purpose**: Provides instant, professional marketing insights and technical implementation guidance for any subject matter across 30+ industry verticals
+- **Trigger**: User enters description in textarea, selects concept mode, and clicks "Generate Strategy" button
+- **Progression**: User types description → Selects industry vertical from concept mode dropdown → Clicks generate button → Loading state displays → AI processes request with industry-specific archetypes → Results appear in eight distinct sections with smooth animation → User can save with custom name or generate new strategy
+- **Success criteria**: All eight components are clearly generated, well-formatted, and immediately actionable for any topic with industry-specific insights
+
+### Industry-Specific Concept Modes
+- **Functionality**: 30+ industry vertical modes that tailor AI strategy generation with domain-specific archetypes and best practices
+- **Purpose**: Provides specialized, contextually-relevant strategies that align with industry standards and common workflows
+- **Categories**:
+  - **Technology & Digital**: SaaS, E-commerce, Telecom, Media
+  - **Business Services**: Sales, Ops, Consulting, Legal
+  - **Finance & Banking**: Fintech, Insurance
+  - **Healthcare & Wellness**: Healthcare, Wellness
+  - **Education & Training**: Education
+  - **Retail & Commerce**: Retail, Fashion, Beauty
+  - **Hospitality & Travel**: Hospitality, Travel, Food Service
+  - **Real Estate & Construction**: Real Estate, Construction
+  - **Industry & Manufacturing**: Manufacturing, Logistics, Energy, Agriculture
+  - **Transportation & Automotive**: Automotive
+  - **Entertainment & Sports**: Entertainment, Sports
+  - **Non-Profit & Social**: Non-Profit Organizations
+- **Trigger**: User selects from organized dropdown menu before generation
+- **Progression**: User selects concept mode → Mode instructions load → AI generation uses mode-specific archetypes → Results reflect industry best practices
+- **Success criteria**: Strategies include industry-appropriate terminology, workflows, and recommendations specific to the selected vertical
 
 ### Named Strategy Saving
 - **Functionality**: Users can save generated strategies with custom names for easy identification

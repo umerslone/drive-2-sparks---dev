@@ -35,7 +35,7 @@ import {
   formatKnowledgebaseForPrompt,
 } from "@/lib/concept-playbooks"
 
-type ConceptMode = "auto" | "sales" | "ecommerce" | "saas" | "education" | "healthcare" | "fintech" | "ops"
+type ConceptMode = "auto" | "sales" | "ecommerce" | "saas" | "education" | "healthcare" | "fintech" | "ops" | "realestate" | "hospitality" | "manufacturing" | "retail" | "logistics" | "legal" | "consulting" | "nonprofit" | "agriculture" | "construction" | "automotive" | "media" | "telecom" | "energy" | "insurance" | "travel" | "foodservice" | "wellness" | "sports" | "entertainment" | "fashion" | "beauty"
 
 interface PromptMemoryItem {
   prompt: string
@@ -53,6 +53,28 @@ const CONCEPT_MODE_INSTRUCTION: Record<ConceptMode, string> = {
   healthcare: "Prioritize triage safety boundaries, booking workflows, sensitive-data handling, and clinical escalation archetypes.",
   fintech: "Prioritize onboarding/KYC support, risk controls, secure integrations, and compliance-oriented workflows.",
   ops: "Prioritize internal operations copilot, SOP automation, ticket routing, SLA monitoring, and productivity archetypes.",
+  realestate: "Prioritize property search & matching, virtual tours, client relationship management, transaction workflow automation, and market analytics archetypes.",
+  hospitality: "Prioritize reservation management, guest experience personalization, dynamic pricing, service request automation, and loyalty program integration archetypes.",
+  manufacturing: "Prioritize production planning, supply chain visibility, quality control automation, equipment maintenance prediction, and inventory optimization archetypes.",
+  retail: "Prioritize inventory management, customer service chatbots, point-of-sale integration, loyalty programs, and omnichannel experience archetypes.",
+  logistics: "Prioritize route optimization, shipment tracking, warehouse management, delivery scheduling, and fleet management archetypes.",
+  legal: "Prioritize document automation, case management, legal research assistance, client intake workflows, and billing automation archetypes.",
+  consulting: "Prioritize project scoping, knowledge management, client reporting automation, resource allocation, and engagement tracking archetypes.",
+  nonprofit: "Prioritize donor management, volunteer coordination, grant application assistance, impact reporting, and fundraising campaign automation archetypes.",
+  agriculture: "Prioritize crop monitoring, weather forecasting integration, supply planning, equipment tracking, and yield optimization archetypes.",
+  construction: "Prioritize project scheduling, equipment tracking, safety compliance, bid management, and progress reporting archetypes.",
+  automotive: "Prioritize service appointment booking, inventory management, parts ordering, customer communication, and warranty tracking archetypes.",
+  media: "Prioritize content management, audience analytics, ad campaign optimization, distribution scheduling, and collaboration workflows archetypes.",
+  telecom: "Prioritize network monitoring, customer support automation, billing management, service provisioning, and outage response archetypes.",
+  energy: "Prioritize consumption monitoring, grid management, demand forecasting, billing automation, and sustainability reporting archetypes.",
+  insurance: "Prioritize claims processing, policy management, risk assessment, customer onboarding, and fraud detection archetypes.",
+  travel: "Prioritize booking automation, itinerary management, destination recommendations, loyalty programs, and customer support archetypes.",
+  foodservice: "Prioritize order management, menu planning, inventory tracking, delivery coordination, and customer feedback integration archetypes.",
+  wellness: "Prioritize appointment scheduling, wellness tracking, personalized recommendations, community engagement, and progress monitoring archetypes.",
+  sports: "Prioritize event scheduling, athlete performance tracking, fan engagement, ticket sales, and training program management archetypes.",
+  entertainment: "Prioritize event management, ticket sales, audience engagement, content scheduling, and revenue optimization archetypes.",
+  fashion: "Prioritize trend forecasting, inventory management, personalized styling, size recommendation, and collection planning archetypes.",
+  beauty: "Prioritize appointment booking, product recommendations, customer loyalty, service customization, and inventory management archetypes.",
 }
 
 function App() {
@@ -709,15 +731,61 @@ FORMATTING GUIDELINES:
                     <SelectTrigger id="concept-mode" className="w-full">
                       <SelectValue placeholder="Select concept mode" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (Recommended)</SelectItem>
-                      <SelectItem value="sales">Sales Agent & Funnel</SelectItem>
-                      <SelectItem value="ecommerce">E-commerce Concierge</SelectItem>
+                    <SelectContent className="max-h-[400px]">
+                      <SelectItem value="auto">🎯 Auto (Recommended)</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Technology & Digital</div>
                       <SelectItem value="saas">SaaS Onboarding & Activation</SelectItem>
-                      <SelectItem value="education">Education Coach</SelectItem>
-                      <SelectItem value="healthcare">Healthcare Triage Assistant</SelectItem>
-                      <SelectItem value="fintech">Fintech Onboarding & Risk</SelectItem>
+                      <SelectItem value="ecommerce">E-commerce Concierge</SelectItem>
+                      <SelectItem value="telecom">Telecom & Network Services</SelectItem>
+                      <SelectItem value="media">Media & Content Management</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Business Services</div>
+                      <SelectItem value="sales">Sales Agent & Funnel</SelectItem>
                       <SelectItem value="ops">Internal Ops Copilot</SelectItem>
+                      <SelectItem value="consulting">Consulting & Advisory</SelectItem>
+                      <SelectItem value="legal">Legal Services</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Finance & Banking</div>
+                      <SelectItem value="fintech">Fintech Onboarding & Risk</SelectItem>
+                      <SelectItem value="insurance">Insurance & Claims</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Healthcare & Wellness</div>
+                      <SelectItem value="healthcare">Healthcare Triage Assistant</SelectItem>
+                      <SelectItem value="wellness">Wellness & Fitness</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Education & Training</div>
+                      <SelectItem value="education">Education Coach</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Retail & Commerce</div>
+                      <SelectItem value="retail">Retail Management</SelectItem>
+                      <SelectItem value="fashion">Fashion & Apparel</SelectItem>
+                      <SelectItem value="beauty">Beauty & Cosmetics</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Hospitality & Travel</div>
+                      <SelectItem value="hospitality">Hospitality & Hotels</SelectItem>
+                      <SelectItem value="travel">Travel & Tourism</SelectItem>
+                      <SelectItem value="foodservice">Food Service & Restaurants</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Real Estate & Construction</div>
+                      <SelectItem value="realestate">Real Estate Management</SelectItem>
+                      <SelectItem value="construction">Construction & Project Management</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Industry & Manufacturing</div>
+                      <SelectItem value="manufacturing">Manufacturing & Production</SelectItem>
+                      <SelectItem value="logistics">Logistics & Supply Chain</SelectItem>
+                      <SelectItem value="energy">Energy & Utilities</SelectItem>
+                      <SelectItem value="agriculture">Agriculture & Farming</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Transportation & Automotive</div>
+                      <SelectItem value="automotive">Automotive Services</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Entertainment & Sports</div>
+                      <SelectItem value="entertainment">Entertainment & Events</SelectItem>
+                      <SelectItem value="sports">Sports & Athletics</SelectItem>
+                      
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Non-Profit & Social</div>
+                      <SelectItem value="nonprofit">Non-Profit Organizations</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-2">
