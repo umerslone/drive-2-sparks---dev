@@ -21,13 +21,14 @@ import {
 } from "@phosphor-icons/react"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
-import { PlagiarismResult, DocumentReviewResult, HumanizedResult, SavedReviewDocument, UserProfile } from "@/types"
+import { DocumentFingerprintRecord, PlagiarismResult, DocumentReviewResult, ExternalSourceCheckResult, HumanizedResult, SavedReviewDocument, UserProfile } from "@/types"
 import { useKV } from "@github/spark/hooks"
 import { SaveReviewDialog } from "@/components/SaveReviewDialog"
 import { SavedReviews } from "@/components/SavedReviews"
-import { performAdvancedDetection } from "@/lib/advanced-detection"
+import { buildDocumentPreview, createDocumentFingerprint, findFingerprintMatches, normalizeDocumentText } from "@/lib/document-fingerprint"
 import { exportReviewToPDF } from "@/lib/pdf-export"
 import { performEnhancedPlagiarismCheck } from "@/lib/enhanced-plagiarism"
+import { getExternalSourceIntegrationSummary, performExternalSourceCheck } from "@/lib/external-source-check"
 import { computeReviewAnalysis, ReviewComputationMeta, ReviewFilters, SectionSummary } from "@/lib/review-engine"
 import { addProCredits, consumeProCredits, getFeatureEntitlements, upgradeToPro } from "@/lib/subscription"
 import { getCurrentMonthKey, getExportPlanConfig } from "@/lib/strategy-governance"
@@ -40,10 +41,26 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 const MAX_DOCUMENT_CHARS = 50000
 
 interface PlagiarismCheckerProps {
-  user: UserProfile
+  user: UserProfile | null
 }
 
 export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
+  if (!user) {
+    return (
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <LockKey size={20} weight="duotone" />
+            Authentication Required
+          </CardTitle>
+          <CardDescription>
+            Sign in to access plagiarism review, AI detection, and re-upload history.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
+
   const userId = user.id
   const [text, setText] = useState("")
   const [isChecking, setIsChecking] = useState(false)
@@ -59,6 +76,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
   const [currentReviewResult, setCurrentReviewResult] = useState<DocumentReviewResult | null>(null)
   const [reviewMeta, setReviewMeta] = useState<ReviewComputationMeta | null>(null)
   const [sectionSummaries, setSectionSummaries] = useState<SectionSummary[]>([])
+  const [externalSourceCheck, setExternalSourceCheck] = useState<ExternalSourceCheckResult | null>(null)
   const [showSavePlagiarismCheck, setShowSavePlagiarismCheck] = useState(false)
   const [plagiarismCheckLabel, setPlagiarismCheckLabel] = useState("")
   const [savedPlagiarismChecks, setSavedPlagiarismChecks] = useKV<Array<{
@@ -84,6 +102,10 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     `document-reviews-${userId}`,
     []
   )
+  const [documentFingerprintRegistry, setDocumentFingerprintRegistry] = useKV<DocumentFingerprintRecord[]>(
+    `document-fingerprint-registry-${userId}`,
+    []
+  )
   const [savedReviews, setSavedReviews] = useKV<SavedReviewDocument[]>(
     `saved-reviews-${userId}`,
     []
@@ -105,6 +127,10 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
   const activeReviewFilters = entitlements.isPro
     ? reviewFilters
     : { excludeQuotes: true, excludeReferences: true, minMatchWords: 8 }
+  const externalIntegration = getExternalSourceIntegrationSummary()
+  const normalizedFingerprintRegistry = Array.isArray(documentFingerprintRegistry) ? documentFingerprintRegistry : []
+  const reuploadHistory = [...normalizedFingerprintRegistry].sort((left, right) => right.lastReviewedAt - left.lastReviewedAt)
+  const totalFingerprintReviews = reuploadHistory.reduce((sum, entry) => sum + entry.reviewCount, 0)
 
   const resetUploadInput = () => {
     if (fileInputRef.current) {
@@ -113,12 +139,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
   }
 
   const normalizeExtractedText = (rawText: string): string => {
-    return rawText
-      .replaceAll("\u0000", "")
-      .replace(/\r\n/g, "\n")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim()
+    return normalizeDocumentText(rawText)
   }
 
   const applyExtractedText = (rawText: string, sourceLabel: string): boolean => {
@@ -141,6 +162,64 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     setText(normalized)
     setUploadStatus(`${sourceLabel} processed: ${normalized.length.toLocaleString()} characters extracted.`)
     return true
+  }
+
+  const getFingerprintRegistryMatches = async (candidateText: string) => {
+    const fingerprint = await createDocumentFingerprint(candidateText)
+    const matches = findFingerprintMatches(fingerprint, normalizedFingerprintRegistry)
+
+    return { fingerprint, matches }
+  }
+
+  const notifyIfPreviouslyReviewed = async (candidateText: string, candidateFileName: string) => {
+    const { matches } = await getFingerprintRegistryMatches(candidateText)
+
+    if (matches.length > 0) {
+      const latestMatch = matches[0]
+      toast.warning(
+        `Exact re-upload detected for ${candidateFileName}. A matching reviewed document already exists${latestMatch.lastSeenAt ? ` from ${new Date(latestMatch.lastSeenAt).toLocaleDateString()}` : ""}.`
+      )
+    }
+  }
+
+  const registerReviewedDocumentFingerprint = async (candidateText: string, candidateFileName: string) => {
+    const fingerprint = await createDocumentFingerprint(candidateText)
+    const preview = buildDocumentPreview(candidateText)
+    const now = Date.now()
+
+    setDocumentFingerprintRegistry((current) => {
+      const existing = Array.isArray(current) ? current : []
+      const existingIndex = existing.findIndex((entry) => entry.fingerprint === fingerprint)
+
+      if (existingIndex >= 0) {
+        const updated = [...existing]
+        const previous = updated[existingIndex]
+        updated[existingIndex] = {
+          ...previous,
+          fileName: candidateFileName || previous.fileName,
+          preview,
+          charCount: candidateText.length,
+          lastReviewedAt: now,
+          reviewCount: previous.reviewCount + 1,
+        }
+        return updated
+      }
+
+      return [
+        {
+          id: `${fingerprint.slice(0, 12)}-${now}`,
+          fingerprint,
+          userId,
+          fileName: candidateFileName,
+          preview,
+          charCount: candidateText.length,
+          firstReviewedAt: now,
+          lastReviewedAt: now,
+          reviewCount: 1,
+        },
+        ...existing,
+      ].slice(0, 250)
+    })
   }
 
   const readTextFileWithProgress = async (file: File): Promise<string> => {
@@ -222,6 +301,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
             setFileName(null)
             return
           }
+          await notifyIfPreviouslyReviewed(content, file.name)
           setUploadProgress(100)
           toast.success(`File "${file.name}" loaded successfully`)
         } else {
@@ -245,6 +325,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
             setFileName(null)
             return
           }
+          await notifyIfPreviouslyReviewed(extractedText, file.name)
           setUploadProgress(100)
           toast.success(`File "${file.name}" loaded successfully`)
         } else {
@@ -268,6 +349,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
             const ocrText = await extractTextFromPdfWithOcr(arrayBuffer)
 
             if (ocrText && ocrText.trim().length > 0 && applyExtractedText(ocrText, "PDF OCR")) {
+              await notifyIfPreviouslyReviewed(ocrText, file.name)
               setUploadProgress(100)
               toast.success(`OCR completed for "${file.name}"`)
             } else {
@@ -278,6 +360,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
             }
             return
           }
+          await notifyIfPreviouslyReviewed(extractedText, file.name)
           setUploadProgress(100)
           toast.success(`File "${file.name}" loaded successfully`)
         } else {
@@ -286,6 +369,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
           const ocrText = await extractTextFromPdfWithOcr(arrayBuffer)
 
           if (ocrText && ocrText.trim().length > 0 && applyExtractedText(ocrText, "PDF OCR")) {
+            await notifyIfPreviouslyReviewed(ocrText, file.name)
             setUploadProgress(100)
             toast.success(`OCR completed for "${file.name}"`)
           } else {
@@ -674,19 +758,22 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     setResult(null)
     setReviewMeta(null)
     setSectionSummaries([])
+    setExternalSourceCheck(null)
     setHumanizedResult(null)
 
     try {
-
-
-
-
+      const { matches: fingerprintMatches } = await getFingerprintRegistryMatches(text)
+      const [analysisOutcome, externalOutcome] = await Promise.all([
+        performEnhancedPlagiarismCheck(text, spark),
+        performExternalSourceCheck({ text, fileName, fingerprintMatches }),
+      ])
 
       // Use enhanced plagiarism detection with advanced algorithms
-      const { result: enrichedResult, advancedMetrics } = await performEnhancedPlagiarismCheck(text, spark)
+      const { result: enrichedResult } = analysisOutcome
+      setExternalSourceCheck(externalOutcome)
 
       // Further enhance with local review analysis
-  const enriched = computeReviewAnalysis(text, enrichedResult, activeReviewFilters)
+      const enriched = computeReviewAnalysis(text, enrichedResult, activeReviewFilters)
       setResult(enriched.result)
       setReviewMeta(enriched.meta)
       setSectionSummaries(enriched.sections)
@@ -696,9 +783,11 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
         fileName: fileName || "Untitled Document",
         summary: enriched.result.summary,
         plagiarismResult: enriched.result,
+        externalSourceCheck: externalOutcome,
         timestamp: Date.now()
       }
 
+      await registerReviewedDocumentFingerprint(text, fileName || "Untitled Document")
       setCurrentReviewResult(review)
       setDocumentReviews((current) => [review, ...(current || [])].slice(0, 20))
 
@@ -735,6 +824,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
       fileName: currentReviewResult.fileName,
       summary: currentReviewResult.summary,
       plagiarismResult: currentReviewResult.plagiarismResult,
+      externalSourceCheck: currentReviewResult.externalSourceCheck,
       timestamp: currentReviewResult.timestamp,
       userId
     }
@@ -770,10 +860,34 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     toast.success("Review unarchived")
   }
 
+  const handleLoadFingerprintPreview = (entry: DocumentFingerprintRecord) => {
+    setText(entry.preview)
+    setFileName(entry.fileName)
+    setResult(null)
+    setReviewMeta(null)
+    setSectionSummaries([])
+    setExternalSourceCheck(null)
+    setCurrentReviewResult(null)
+    setUploadStatus("Loaded preview from re-upload history. Upload the original document for a full analysis.")
+    toast.info("Preview loaded from re-upload history. This is a short stored excerpt, not the full document.")
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  const handleDeleteFingerprintEntry = (id: string) => {
+    setDocumentFingerprintRegistry((current) => (Array.isArray(current) ? current : []).filter((entry) => entry.id !== id))
+    toast.success("History entry removed")
+  }
+
+  const handleClearFingerprintHistory = () => {
+    setDocumentFingerprintRegistry([])
+    toast.success("Re-upload history cleared")
+  }
+
   const handleViewReview = (review: SavedReviewDocument) => {
     setText(review.documentText)
     setFileName(review.fileName)
     setResult(review.plagiarismResult)
+    setExternalSourceCheck(review.externalSourceCheck || null)
     const enriched = computeReviewAnalysis(review.documentText, review.plagiarismResult, activeReviewFilters)
     setReviewMeta(enriched.meta)
     setSectionSummaries(enriched.sections)
@@ -812,7 +926,7 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
         id: `check-${Date.now()}`,
         label: plagiarismCheckLabel,
         documentName: fileName || "Direct Input",
-        plagiarismScore: result.plagiarismScore,
+        plagiarismScore: result.plagiarismPercentage,
         aiContentScore: result.aiContentPercentage,
         timestamp: Date.now(),
         summary: result.summary.substring(0, 200)
@@ -1312,6 +1426,54 @@ Return ONLY a valid JSON object:
                   </Alert>
                 )}
 
+                <Alert>
+                  <AlertDescription>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium">External Repository Verification</p>
+                        <Badge variant={externalSourceCheck?.status === "completed" ? "default" : "secondary"}>
+                          {externalSourceCheck?.status || "not-run"}
+                        </Badge>
+                        <Badge variant="outline">
+                          Provider: {externalSourceCheck?.provider || externalIntegration.provider}
+                        </Badge>
+                        <Badge variant="outline">
+                          Public web: {externalIntegration.publicWebEnabled ? "enabled" : "disabled"}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {externalSourceCheck?.summary || "No external verification has been run for this review yet."}
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-muted-foreground">
+                        <p>Live external checks: {externalSourceCheck?.canPerformLiveCheck ? "available" : "not available"}</p>
+                        <p>Retention status verification: {externalSourceCheck?.canVerifyRetention ? "available" : "not available"}</p>
+                      </div>
+                      {(externalSourceCheck?.providerChecks || []).length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1">
+                          {externalSourceCheck?.providerChecks.map((check) => (
+                            <div key={check.provider} className="rounded-lg border border-border bg-background/70 p-3 space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{check.provider}</p>
+                                <Badge variant={check.status === "completed" ? "default" : "secondary"}>{check.status}</Badge>
+                              </div>
+                              <p className="text-xs text-foreground">{check.summary}</p>
+                              {check.matches.length > 0 && (
+                                <p className="text-xs text-muted-foreground">Matches: {check.matches.length}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {(externalSourceCheck?.warnings || []).slice(0, 2).map((warning, index) => (
+                        <p key={index} className="text-xs text-amber-700">- {warning}</p>
+                      ))}
+                      {(externalSourceCheck?.nextSteps || []).slice(0, 2).map((step, index) => (
+                        <p key={index} className="text-xs text-muted-foreground">Next: {step}</p>
+                      ))}
+                    </div>
+                  </AlertDescription>
+                </Alert>
+
                 <Tabs defaultValue="summary" className="w-full">
                   <div className="overflow-x-auto pb-1">
                     <TabsList className="grid min-w-[680px] grid-cols-5">
@@ -1530,6 +1692,28 @@ Return ONLY a valid JSON object:
                     </div>
                   </div>
                 )}
+
+                {externalSourceCheck && externalSourceCheck.matches.length > 0 && (
+                  <div className="pt-4 border-t">
+                    <h4 className="text-sm font-semibold mb-3">External Repository Matches</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {externalSourceCheck.matches.map((match, index) => (
+                        <div key={`${match.source}-${index}`} className="p-3 border border-border rounded-lg bg-muted/20 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium truncate">{match.source}</p>
+                            <Badge variant="secondary">{match.similarity}%</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {match.matchType} match{match.repository ? ` in ${match.repository}` : ""}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Retention: {match.retentionState || "unknown"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -1600,6 +1784,77 @@ Return ONLY a valid JSON object:
         onSave={handleSaveReview}
         onDiscard={handleDiscardReview}
       />
+
+      <Card className="mt-8 border-border/70">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+          <div className="space-y-1">
+            <CardTitle>Re-upload History</CardTitle>
+            <CardDescription>
+              Exact-match registry built from documents you have already reviewed. This is separate from public-web and external-provider checks.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">{reuploadHistory.length} {reuploadHistory.length === 1 ? "document" : "documents"}</Badge>
+            <Badge variant="outline">{totalFingerprintReviews} total reviews</Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearFingerprintHistory}
+              disabled={reuploadHistory.length === 0}
+            >
+              Clear History
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {reuploadHistory.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border p-6 text-center">
+              <p className="text-sm font-medium text-foreground">No re-upload history yet</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Reviewed documents will appear here once their fingerprints have been stored.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {reuploadHistory.map((entry) => (
+                <div key={entry.id} className="rounded-lg border border-border bg-muted/20 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2 min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground truncate">{entry.fileName}</p>
+                        <Badge variant="secondary">{entry.reviewCount} {entry.reviewCount === 1 ? "review" : "reviews"}</Badge>
+                        <Badge variant="outline">{entry.charCount.toLocaleString()} chars</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{entry.preview}</p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                        <span>First reviewed: {new Date(entry.firstReviewedAt).toLocaleString()}</span>
+                        <span>Last reviewed: {new Date(entry.lastReviewedAt).toLocaleString()}</span>
+                        <span>Fingerprint: {entry.fingerprint.slice(0, 12)}...</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleLoadFingerprintPreview(entry)}
+                      >
+                        Load Preview
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteFingerprintEntry(entry.id)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {(savedReviews && savedReviews.length > 0) && (
         <div className="space-y-4 mt-8">

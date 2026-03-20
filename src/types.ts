@@ -100,6 +100,68 @@ export interface AIDetectionHighlight {
   confidence: number
 }
 
+export type ExternalSourceProvider =
+  | "turnitin"
+  | "ithenticate"
+  | "custom"
+  | "public-web"
+  | "fingerprint-registry"
+  | "composite"
+  | "none"
+
+export type ExternalSourceCheckStatus =
+  | "not-configured"
+  | "ready"
+  | "completed"
+  | "unsupported"
+  | "error"
+
+export interface ExternalSourceMatch {
+  source: string
+  similarity: number
+  matchType: "exact" | "near-exact" | "paraphrase" | "metadata"
+  repository?: string
+  provider?: ExternalSourceProvider
+  lastSeenAt?: number
+  retentionState?: "active" | "deleted" | "unknown"
+}
+
+export interface ExternalSourceProviderCheck {
+  provider: ExternalSourceProvider
+  status: ExternalSourceCheckStatus
+  canPerformLiveCheck: boolean
+  canVerifyRetention: boolean
+  summary: string
+  warnings: string[]
+  nextSteps: string[]
+  matches: ExternalSourceMatch[]
+}
+
+export interface ExternalSourceCheckResult {
+  provider: ExternalSourceProvider
+  status: ExternalSourceCheckStatus
+  canPerformLiveCheck: boolean
+  canVerifyRetention: boolean
+  checkedAt: number
+  summary: string
+  warnings: string[]
+  nextSteps: string[]
+  matches: ExternalSourceMatch[]
+  providerChecks: ExternalSourceProviderCheck[]
+}
+
+export interface DocumentFingerprintRecord {
+  id: string
+  fingerprint: string
+  userId: string
+  fileName: string
+  preview: string
+  charCount: number
+  firstReviewedAt: number
+  lastReviewedAt: number
+  reviewCount: number
+}
+
 export interface PlagiarismResult {
   overallScore: number
   plagiarismPercentage: number
@@ -118,6 +180,7 @@ export interface DocumentReviewResult {
   fileName: string
   summary: string
   plagiarismResult: PlagiarismResult
+  externalSourceCheck?: ExternalSourceCheckResult
   timestamp: number
 }
 
@@ -128,6 +191,7 @@ export interface SavedReviewDocument {
   fileName: string
   summary: string
   plagiarismResult: PlagiarismResult
+  externalSourceCheck?: ExternalSourceCheckResult
   timestamp: number
   userId: string
   archived?: boolean
