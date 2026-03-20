@@ -49,6 +49,7 @@ import {
   FileText,
   Bug,
   Key,
+  Archive,
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { UserProfile, UserRole, SavedStrategy, SavedReviewDocument } from "@/types"
@@ -570,64 +571,140 @@ export function AdminDashboard() {
                   <CardTitle className="text-lg font-semibold">All User Reviews</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Review Name</TableHead>
-                          <TableHead>User</TableHead>
-                          <TableHead>File Name</TableHead>
-                          <TableHead>Score</TableHead>
-                          <TableHead>Created</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {allReviews.reduce((sum, item) => sum + item.reviews.length, 0) === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                              No reviews found
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          allReviews.flatMap(({ user, reviews }) =>
-                            reviews.map((review) => (
-                              <TableRow key={review.id}>
-                                <TableCell className="font-medium">{review.name}</TableCell>
-                                <TableCell>
-                                  <div className="flex flex-col">
-                                    <span className="text-sm">{user.fullName}</span>
-                                    <span className="text-xs text-muted-foreground">{user.email}</span>
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-sm">{review.fileName}</TableCell>
-                                <TableCell>
-                                  <Badge 
-                                    variant={review.plagiarismResult.overallScore >= 80 ? "default" : "destructive"}
-                                    className="gap-1"
-                                  >
-                                    {review.plagiarismResult.overallScore}%
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-sm text-muted-foreground">
-                                  {formatDate(review.timestamp)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setSelectedReview({ user, review })}
-                                  >
-                                    <Eye size={16} weight="bold" />
-                                  </Button>
+                  <Tabs defaultValue="active" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 max-w-md mb-4">
+                      <TabsTrigger value="active" className="gap-2">
+                        <FileText size={16} weight="duotone" />
+                        Active ({allReviews.reduce((sum, item) => sum + item.reviews.filter(r => !r.archived).length, 0)})
+                      </TabsTrigger>
+                      <TabsTrigger value="archived" className="gap-2">
+                        <FileText size={16} weight="duotone" />
+                        Archived ({allReviews.reduce((sum, item) => sum + item.reviews.filter(r => r.archived).length, 0)})
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="active">
+                      <div className="rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Review Name</TableHead>
+                              <TableHead>User</TableHead>
+                              <TableHead>File Name</TableHead>
+                              <TableHead>Score</TableHead>
+                              <TableHead>Created</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {allReviews.reduce((sum, item) => sum + item.reviews.filter(r => !r.archived).length, 0) === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                                  No active reviews found
                                 </TableCell>
                               </TableRow>
-                            ))
-                          )
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
+                            ) : (
+                              allReviews.flatMap(({ user, reviews }) =>
+                                reviews.filter(r => !r.archived).map((review) => (
+                                  <TableRow key={review.id}>
+                                    <TableCell className="font-medium">{review.name}</TableCell>
+                                    <TableCell>
+                                      <div className="flex flex-col">
+                                        <span className="text-sm">{user.fullName}</span>
+                                        <span className="text-xs text-muted-foreground">{user.email}</span>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="text-sm">{review.fileName}</TableCell>
+                                    <TableCell>
+                                      <Badge 
+                                        variant={review.plagiarismResult.overallScore >= 80 ? "default" : "destructive"}
+                                        className="gap-1"
+                                      >
+                                        {review.plagiarismResult.overallScore}%
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-sm text-muted-foreground">
+                                      {formatDate(review.timestamp)}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setSelectedReview({ user, review })}
+                                      >
+                                        <Eye size={16} weight="bold" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              )
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="archived">
+                      <div className="rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Review Name</TableHead>
+                              <TableHead>User</TableHead>
+                              <TableHead>File Name</TableHead>
+                              <TableHead>Score</TableHead>
+                              <TableHead>Created</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {allReviews.reduce((sum, item) => sum + item.reviews.filter(r => r.archived).length, 0) === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                                  No archived reviews found
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              allReviews.flatMap(({ user, reviews }) =>
+                                reviews.filter(r => r.archived).map((review) => (
+                                  <TableRow key={review.id} className="opacity-75">
+                                    <TableCell className="font-medium">{review.name}</TableCell>
+                                    <TableCell>
+                                      <div className="flex flex-col">
+                                        <span className="text-sm">{user.fullName}</span>
+                                        <span className="text-xs text-muted-foreground">{user.email}</span>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="text-sm">{review.fileName}</TableCell>
+                                    <TableCell>
+                                      <Badge 
+                                        variant={review.plagiarismResult.overallScore >= 80 ? "default" : "destructive"}
+                                        className="gap-1"
+                                      >
+                                        {review.plagiarismResult.overallScore}%
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-sm text-muted-foreground">
+                                      {formatDate(review.timestamp)}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setSelectedReview({ user, review })}
+                                      >
+                                        <Eye size={16} weight="bold" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              )
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
                 </CardContent>
               </Card>
             </TabsContent>
