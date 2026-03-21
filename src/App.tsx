@@ -329,16 +329,16 @@ ${qaFeedback ? `Fix these issues from QA review:\n${qaFeedback}` : ""}
 ${memoryContext}
 
 Return a JSON object with exactly these 8 string properties:
-- marketingCopy: 2-3 paragraphs of persuasive marketing copy
-- visualStrategy: Visual strategy and branding recommendations
-- targetAudience: Target audience analysis and segmentation
-- applicationWorkflow: Implementation workflow and architecture steps
-- uiWorkflow: UI/UX implementation guidance
-- databaseWorkflow: Database design and data management guidance
-- mobileWorkflow: Mobile implementation and responsive design guidance
-- implementationChecklist: Sprint-ready tasks and implementation checklist
+- marketingCopy: Persuasive marketing copy (1-2 short paragraphs)
+- visualStrategy: Visual strategy and branding recommendations (1-2 short paragraphs)
+- targetAudience: Target audience analysis (1-2 short paragraphs)
+- applicationWorkflow: Implementation workflow steps (1-2 short paragraphs)
+- uiWorkflow: UI/UX guidance (1-2 short paragraphs)
+- databaseWorkflow: Database design guidance (1-2 short paragraphs)
+- mobileWorkflow: Mobile and responsive design guidance (1-2 short paragraphs)
+- implementationChecklist: Sprint-ready tasks (1-2 short paragraphs)
 
-Each value should be a detailed multi-paragraph string. Return ONLY valid JSON.`
+Keep each value concise. Do NOT use newlines inside string values. Return ONLY valid JSON.`
 
     if (typeof spark.llm !== "function") {
       const error = new Error("Spark LLM function is not available.")
@@ -407,7 +407,7 @@ Each value should be a detailed multi-paragraph string. Return ONLY valid JSON.`
     console.log(`Attempt ${attemptNumber} - First 300 chars:`, cleanedResponse.substring(0, 300))
     console.log(`Attempt ${attemptNumber} - Last 300 chars:`, cleanedResponse.substring(Math.max(0, cleanedResponse.length - 300)))
     
-    let parsedResult: MarketingResult
+    let parsedResult!: MarketingResult
     
     try {
       parsedResult = JSON.parse(cleanedResponse) as MarketingResult
@@ -415,20 +415,46 @@ Each value should be a detailed multi-paragraph string. Return ONLY valid JSON.`
       console.error(`Attempt ${attemptNumber} - JSON parse failed, trying repair...`)
       
       // Attempt to repair common JSON issues
-      try {
-        let repaired = cleanedResponse
-          // Fix trailing commas before closing braces
-          .replace(/,\s*}/g, '}')
-          .replace(/,\s*]/g, ']')
-          // Fix unescaped newlines inside strings (replace with space)
-          .replace(/(?<=": "(?:[^"\\]|\\.)*)\n(?=[^"]*")/g, ' ')
-          // Fix control characters
-          .replace(/[\x00-\x1F\x7F]/g, (ch) => ch === '\n' || ch === '\r' || ch === '\t' ? ' ' : '')
-        
-        parsedResult = JSON.parse(repaired) as MarketingResult
-        console.log(`Attempt ${attemptNumber} - JSON repair succeeded`)
-      } catch {
-        console.error(`Attempt ${attemptNumber} - JSON repair also failed`)
+      const repairAttempts: string[] = []
+      
+      // Step 1: Basic cleanup
+      let repaired = cleanedResponse
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']')
+        .replace(/[\x00-\x1F\x7F]/g, (ch) => ch === '\n' || ch === '\r' || ch === '\t' ? ' ' : '')
+      repairAttempts.push(repaired)
+      
+      // Step 2: Handle truncated response — close unterminated strings and braces
+      if (!repaired.endsWith('}')) {
+        let truncated = repaired
+        // If we're inside a string value (odd number of unescaped quotes), close it
+        const quoteCount = (truncated.match(/(?<!\\)"/g) || []).length
+        if (quoteCount % 2 !== 0) {
+          truncated += '"'
+        }
+        // Close any open braces
+        const openBraces = (truncated.match(/{/g) || []).length
+        const closeBraces = (truncated.match(/}/g) || []).length
+        for (let i = 0; i < openBraces - closeBraces; i++) {
+          truncated += '}'
+        }
+        repairAttempts.push(truncated)
+      }
+      
+      let repairSucceeded = false
+      for (const attempt of repairAttempts) {
+        try {
+          parsedResult = JSON.parse(attempt) as MarketingResult
+          console.log(`Attempt ${attemptNumber} - JSON repair succeeded`)
+          repairSucceeded = true
+          break
+        } catch {
+          // Try next repair attempt
+        }
+      }
+      
+      if (!repairSucceeded) {
+        console.error(`Attempt ${attemptNumber} - All JSON repairs failed`)
         
         await logError(
           "JSON parse error in LLM response",
