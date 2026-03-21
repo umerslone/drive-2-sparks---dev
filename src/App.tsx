@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal, LockSimple } from "@phosphor-icons/react"
+import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal, LockSimple, Lightning, SignIn, UserPlus } from "@phosphor-icons/react"
+import { UpgradePaywall } from "@/components/UpgradePaywall"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { ResultCard } from "@/components/ResultCard"
 import { LoadingState } from "@/components/LoadingState"
 import { EmptyState } from "@/components/EmptyState"
@@ -142,6 +144,9 @@ function App() {
     return isBrandThemeName(storedTheme) ? storedTheme : DEFAULT_BRAND_THEME
   })
   const [activeTab, setActiveTab] = useState("generate")
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login")
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -953,7 +958,61 @@ ${JSON.stringify(candidate)}`
   }
 
   if (!user) {
-    return <AuthForm onAuthSuccess={handleAuthSuccess} />
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background">
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(circle at 30% 20%, var(--brand-glow-primary) 0%, transparent 50%), radial-gradient(circle at 70% 80%, var(--brand-glow-secondary) 0%, transparent 50%)",
+          }}
+        />
+        {/* Top navigation bar with Login/Signup */}
+        <header className="relative sticky top-0 z-50 bg-background/80 backdrop-blur-md border-b border-border/50">
+          <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <img src={faviconImg} alt="Techpigeon" className="w-8 h-8 object-contain" />
+              <span className="font-bold text-lg text-foreground hidden sm:inline">Techpigeon</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => { setAuthMode("login"); setShowAuthModal(true) }}
+              >
+                <SignIn size={18} weight="bold" />
+                <span className="hidden sm:inline">Login</span>
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-gradient-to-r from-primary to-primary/90"
+                onClick={() => { setAuthMode("signup"); setShowAuthModal(true) }}
+              >
+                <UserPlus size={18} weight="bold" />
+                <span className="hidden sm:inline">Sign Up</span>
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        <div className="relative max-w-6xl mx-auto px-6 md:px-8 py-12">
+          <EmptyState />
+        </div>
+
+        <Dialog open={showAuthModal} onOpenChange={setShowAuthModal}>
+          <DialogContent className="max-w-md p-0 border-0 bg-transparent shadow-none [&>button]:hidden">
+            <AuthForm
+              onAuthSuccess={(u) => {
+                setShowAuthModal(false)
+                handleAuthSuccess(u)
+              }}
+              initialMode={authMode}
+            />
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
   }
 
   return (
@@ -1018,13 +1077,26 @@ ${JSON.stringify(candidate)}`
                   <span className="sm:hidden">Techpigeon AI</span>
                 </h1>
               </div>
-              <UserMenu
-                user={user}
-                brandTheme={brandTheme}
-                onBrandThemeChange={setBrandTheme}
-                onLogout={handleLogout}
-                onProfileUpdate={handleProfileUpdate}
-              />
+              <div className="flex items-center gap-2">
+                {entitlements && !entitlements.isPaidPlan && user.role !== "admin" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10 hidden sm:flex"
+                    onClick={() => setShowUpgradeModal(true)}
+                  >
+                    <Lightning size={16} weight="fill" />
+                    Upgrade
+                  </Button>
+                )}
+                <UserMenu
+                  user={user}
+                  brandTheme={brandTheme}
+                  onBrandThemeChange={setBrandTheme}
+                  onLogout={handleLogout}
+                  onProfileUpdate={handleProfileUpdate}
+                />
+              </div>
             </div>
             <p className="text-muted-foreground text-sm sm:text-base md:text-lg max-w-2xl leading-relaxed text-center md:text-left">
               Pakistan's leading AI platform for intelligent marketing strategies and business insights
@@ -1929,7 +2001,7 @@ ${JSON.stringify(candidate)}`
                   </div>
                 )}
                 
-                {!isLoading && !result && !error && <EmptyState />}
+                {!isLoading && !result && !error && <EmptyState onNavigate={setActiveTab} />}
               </div>
             </TabsContent>
 
@@ -2113,6 +2185,13 @@ ${JSON.stringify(candidate)}`
         
         <Footer />
       </div>
+
+      {/* Upgrade to Pro/Team modal */}
+      <Dialog open={showUpgradeModal} onOpenChange={setShowUpgradeModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <UpgradePaywall user={user} feature="review" />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -11,14 +11,16 @@ import { inviteService } from "@/lib/invite-system"
 import { toast } from "sonner"
 import { UserProfile } from "@/types"
 import { PasswordResetFlow } from "@/components/PasswordResetFlow"
+import faviconImg from "@/assets/images/favicon.png"
 
 interface AuthFormProps {
   onAuthSuccess: (user: UserProfile) => void
+  initialMode?: "login" | "signup"
 }
 
-export function AuthForm({ onAuthSuccess }: AuthFormProps) {
+export function AuthForm({ onAuthSuccess, initialMode }: AuthFormProps) {
   const [isLoading, setIsLoading] = useState(false)
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [isSignUp, setIsSignUp] = useState(initialMode === "signup")
   const [showPasswordReset, setShowPasswordReset] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -132,7 +134,7 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
       >
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 mb-4">
-            <Sparkle size={36} weight="duotone" className="text-primary" />
+            <img src={faviconImg} alt="Techpigeon" className="w-9 h-9 object-contain" />
             <h1 className="text-3xl font-bold tracking-tight text-foreground">
               TechPigeon Assistant
             </h1>
