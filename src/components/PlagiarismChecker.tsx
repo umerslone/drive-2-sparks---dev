@@ -1081,8 +1081,8 @@ Return ONLY a valid JSON object:
 
       const humanized: HumanizedResult = {
         originalText: text,
-        humanizedText: parsed.humanizedText,
-        changes: parsed.changes || [],
+        humanizedText: typeof parsed.humanizedText === "string" ? parsed.humanizedText : text,
+        changes: Array.isArray(parsed.changes) ? parsed.changes as { original: string; humanized: string }[] : [],
         timestamp: Date.now(),
       }
 
