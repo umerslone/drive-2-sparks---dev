@@ -28,7 +28,7 @@ import { SavedReviews } from "@/components/SavedReviews"
 import { buildDocumentPreview, createDocumentFingerprint, findFingerprintMatches, normalizeDocumentText } from "@/lib/document-fingerprint"
 import { exportReviewToPDF } from "@/lib/pdf-export"
 import { performEnhancedPlagiarismCheck } from "@/lib/enhanced-plagiarism"
-import { getExternalSourceIntegrationSummary, performExternalSourceCheck } from "@/lib/external-source-check"
+import { performExternalSourceCheck } from "@/lib/external-source-check"
 import { computeReviewAnalysis, ReviewComputationMeta, ReviewFilters, SectionSummary } from "@/lib/review-engine"
 import { AdvancedDetectionResult } from "@/lib/advanced-detection"
 import { addProCredits, consumeProCredits, consumeReviewCredit, getFeatureEntitlements, requestUpgrade, PLAN_CONFIG } from "@/lib/subscription"
@@ -135,7 +135,6 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
   const activeReviewFilters = entitlements.isPaidPlan
     ? reviewFilters
     : { excludeQuotes: true, excludeReferences: true, minMatchWords: 8 }
-  const externalIntegration = getExternalSourceIntegrationSummary()
   const normalizedFingerprintRegistry = Array.isArray(documentFingerprintRegistry) ? documentFingerprintRegistry : []
   const reuploadHistory = [...normalizedFingerprintRegistry].sort((left, right) => right.lastReviewedAt - left.lastReviewedAt)
   const totalFingerprintReviews = reuploadHistory.reduce((sum, entry) => sum + entry.reviewCount, 0)
@@ -1524,51 +1523,30 @@ Return ONLY a valid JSON object:
                   </Alert>
                 )}
 
-                {user.role === "admin" && (
+                {user.role === "admin" && externalSourceCheck?.status === "completed" && (externalSourceCheck?.matches || []).length > 0 && (
                   <Alert>
                     <AlertDescription>
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm font-medium">External Repository Verification (Admin Only)</p>
-                          <Badge variant={externalSourceCheck?.status === "completed" ? "default" : "secondary"}>
-                            {externalSourceCheck?.status || "not-run"}
-                          </Badge>
-                          <Badge variant="outline">
-                            Provider: {externalSourceCheck?.provider || externalIntegration.provider}
-                          </Badge>
-                          <Badge variant="outline">
-                            Public web: {externalIntegration.publicWebEnabled ? "enabled" : "disabled"}
-                          </Badge>
+                          <Badge variant="default">{externalSourceCheck.status}</Badge>
+                          <Badge variant="outline">Provider: {externalSourceCheck.provider}</Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          {externalSourceCheck?.summary || "No external verification has been run for this review yet."}
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-muted-foreground">
-                          <p>Live external checks: {externalSourceCheck?.canPerformLiveCheck ? "available" : "not available"}</p>
-                          <p>Retention status verification: {externalSourceCheck?.canVerifyRetention ? "available" : "not available"}</p>
-                        </div>
-                        {(externalSourceCheck?.providerChecks || []).length > 0 && (
+                        <p className="text-sm text-muted-foreground">{externalSourceCheck.summary}</p>
+                        {(externalSourceCheck.providerChecks || []).filter(c => c.matches.length > 0).length > 0 && (
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1">
-                            {externalSourceCheck?.providerChecks.map((check) => (
+                            {externalSourceCheck.providerChecks.filter(c => c.matches.length > 0).map((check) => (
                               <div key={check.provider} className="rounded-lg border border-border bg-background/70 p-3 space-y-1">
                                 <div className="flex items-center justify-between gap-2">
                                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{check.provider}</p>
-                                  <Badge variant={check.status === "completed" ? "default" : "secondary"}>{check.status}</Badge>
+                                  <Badge variant="default">{check.status}</Badge>
                                 </div>
                                 <p className="text-xs text-foreground">{check.summary}</p>
-                                {check.matches.length > 0 && (
-                                  <p className="text-xs text-muted-foreground">Matches: {check.matches.length}</p>
-                                )}
+                                <p className="text-xs text-muted-foreground">Matches: {check.matches.length}</p>
                               </div>
                             ))}
                           </div>
                         )}
-                        {(externalSourceCheck?.warnings || []).slice(0, 2).map((warning, index) => (
-                          <p key={index} className="text-xs text-amber-700">- {warning}</p>
-                        ))}
-                        {(externalSourceCheck?.nextSteps || []).slice(0, 2).map((step, index) => (
-                          <p key={index} className="text-xs text-muted-foreground">Next: {step}</p>
-                        ))}
                       </div>
                     </AlertDescription>
                   </Alert>
