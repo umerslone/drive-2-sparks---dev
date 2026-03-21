@@ -38,6 +38,13 @@ const DEFAULT_PLAN_CONFIG: Record<SubscriptionPlan, StrategyPlanConfig> = {
     enableQaLoop: true,
     maxWorkflowRetries: 3,
   },
+  team: {
+    plan: "team",
+    maxSavedStrategies: 2000,
+    monthlyBudgetCents: 25000,
+    enableQaLoop: true,
+    maxWorkflowRetries: 5,
+  },
 }
 
 const DEFAULT_EXPORT_PLAN_CONFIG: Record<SubscriptionPlan, ExportPlanConfig> = {
@@ -49,6 +56,11 @@ const DEFAULT_EXPORT_PLAN_CONFIG: Record<SubscriptionPlan, ExportPlanConfig> = {
   pro: {
     plan: "pro",
     monthlyExports: 100,
+    allowWordExport: true,
+  },
+  team: {
+    plan: "team",
+    monthlyExports: Infinity,
     allowWordExport: true,
   },
 }
@@ -74,12 +86,13 @@ export function getStrategyPlanConfig(plan: SubscriptionPlan): StrategyPlanConfi
         maxWorkflowRetries: 1,
       }
     } else {
+      // Pro and Team use pro budget limits from admin (team gets higher defaults)
       return {
-        plan: "pro",
-        maxSavedStrategies: cachedBudgetLimits.proMaxSavedStrategies,
-        monthlyBudgetCents: cachedBudgetLimits.proMonthlyBudgetCents,
+        plan,
+        maxSavedStrategies: plan === "team" ? cachedBudgetLimits.proMaxSavedStrategies * 4 : cachedBudgetLimits.proMaxSavedStrategies,
+        monthlyBudgetCents: plan === "team" ? cachedBudgetLimits.proMonthlyBudgetCents * 5 : cachedBudgetLimits.proMonthlyBudgetCents,
         enableQaLoop: true,
-        maxWorkflowRetries: 3,
+        maxWorkflowRetries: plan === "team" ? 5 : 3,
       }
     }
   }
@@ -97,8 +110,8 @@ export function getExportPlanConfig(plan: SubscriptionPlan): ExportPlanConfig {
       }
     } else {
       return {
-        plan: "pro",
-        monthlyExports: cachedBudgetLimits.proMonthlyExports,
+        plan,
+        monthlyExports: plan === "team" ? Infinity : cachedBudgetLimits.proMonthlyExports,
         allowWordExport: true,
       }
     }

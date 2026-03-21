@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal } from "@phosphor-icons/react"
+import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal, LockSimple } from "@phosphor-icons/react"
 import { ResultCard } from "@/components/ResultCard"
 import { LoadingState } from "@/components/LoadingState"
 import { EmptyState } from "@/components/EmptyState"
@@ -30,7 +30,7 @@ import { authService } from "@/lib/auth"
 import { BRAND_THEME_STORAGE_KEY, DEFAULT_BRAND_THEME, isBrandThemeName, type BrandThemeName } from "@/lib/brand-theme"
 import { logError } from "@/lib/error-logger"
 import { cn } from "@/lib/utils"
-import { getFeatureEntitlements, upgradeToPro } from "@/lib/subscription"
+import { getFeatureEntitlements, upgradeToPlan } from "@/lib/subscription"
 import { exportStrategyAsPDF } from "@/lib/pdf-export"
 import { exportStrategyAsWord } from "@/lib/document-export"
 import { estimateGenerationCostCents, estimatePromptTokens, getCurrentMonthKey, getExportPlanConfig, getStrategyPlanConfig, loadBudgetLimits } from "@/lib/strategy-governance"
@@ -187,7 +187,7 @@ function App() {
   const charCount = description.length
   const showCharCounter = charCount >= 900
   const entitlements = user ? getFeatureEntitlements(user) : null
-  const strategyPlan = entitlements?.isPro ? "pro" : "basic"
+  const strategyPlan = entitlements?.isPaidPlan ? (entitlements.isTeam ? "team" : "pro") : "basic"
   const strategyPlanConfig = getStrategyPlanConfig(strategyPlan)
   const exportPlanConfig = getExportPlanConfig(strategyPlan)
   const spendProgress = Math.min(100, Math.round(((monthlyStrategySpendCents || 0) / strategyPlanConfig.monthlyBudgetCents) * 100))
@@ -845,9 +845,9 @@ ${JSON.stringify(candidate)}`
   }
 
   const handleUpgradeToProQuick = async () => {
-    if (!user || strategyPlan === "pro") return
+    if (!user || entitlements?.isPaidPlan) return
 
-    const result = await upgradeToPro(user.id, 25)
+    const result = await upgradeToPlan(user.id, "pro")
     if (!result.success) {
       toast.error(result.error || "Failed to upgrade user")
       return
@@ -866,7 +866,7 @@ ${JSON.stringify(candidate)}`
       }
     })
 
-    toast.success(`Upgraded to Pro Individual. ${result.credits} credits added.`)
+    toast.success(`Upgraded to Pro. ${result.credits} credits added.`)
   }
 
   const handleViewStrategy = (strategy: SavedStrategy) => {
@@ -1061,7 +1061,11 @@ ${JSON.stringify(candidate)}`
                 <span>Ideas</span>
               </TabsTrigger>
               <TabsTrigger value="plagiarism" className="gap-2 text-sm">
-                <MagnifyingGlass size={18} weight="bold" />
+                {entitlements?.canAccessReview || user.role === "admin" ? (
+                  <MagnifyingGlass size={18} weight="bold" />
+                ) : (
+                  <LockSimple size={18} weight="bold" className="text-muted-foreground" />
+                )}
                 <span>Review</span>
               </TabsTrigger>
               <TabsTrigger value="dashboard" className="gap-2 text-sm">
@@ -2115,6 +2119,7 @@ ${JSON.stringify(candidate)}`
           onTabChange={setActiveTab}
           isAdmin={user.role === "admin"}
           savedCount={savedStrategies?.length || 0}
+          canAccessReview={entitlements?.canAccessReview || user.role === "admin"}
         />
         
         <Footer />

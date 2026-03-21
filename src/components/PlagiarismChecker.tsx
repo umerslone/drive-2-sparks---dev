@@ -31,7 +31,9 @@ import { performEnhancedPlagiarismCheck } from "@/lib/enhanced-plagiarism"
 import { getExternalSourceIntegrationSummary, performExternalSourceCheck } from "@/lib/external-source-check"
 import { computeReviewAnalysis, ReviewComputationMeta, ReviewFilters, SectionSummary } from "@/lib/review-engine"
 import { AdvancedDetectionResult } from "@/lib/advanced-detection"
-import { addProCredits, consumeProCredits, getFeatureEntitlements, upgradeToPro } from "@/lib/subscription"
+import { addProCredits, consumeProCredits, consumeReviewCredit, getFeatureEntitlements, upgradeToPlan, upgradeToPro, PLAN_CONFIG } from "@/lib/subscription"
+import { UpgradePaywall } from "@/components/UpgradePaywall"
+import type { SubscriptionPlan } from "@/types"
 import { getCurrentMonthKey, getExportPlanConfig } from "@/lib/strategy-governance"
 import mammoth from "mammoth"
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist"
@@ -98,8 +100,9 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     minMatchWords: 8,
   })
   const [advancedMetrics, setAdvancedMetrics] = useState<AdvancedDetectionResult | null>(null)
-  const [subscriptionPlan, setSubscriptionPlan] = useState<"basic" | "pro">(user.subscription?.plan || "basic")
+  const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlan>(user.subscription?.plan || "basic")
   const [proCredits, setProCredits] = useState(user.subscription?.proCredits || 0)
+  const [trialSubmissionsUsed, setTrialSubmissionsUsed] = useState(user.subscription?.trial?.submissionsUsed || 0)
   const [, setDocumentReviews] = useSafeKV<DocumentReviewResult[]>(
     `document-reviews-${userId}`,
     []
@@ -123,10 +126,13 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
       ...(user.subscription || { plan: "basic", status: "active", proCredits: 0, updatedAt: Date.now() }),
       plan: subscriptionPlan,
       proCredits,
+      trial: user.subscription?.trial
+        ? { ...user.subscription.trial, submissionsUsed: trialSubmissionsUsed }
+        : undefined,
     },
   })
-  const exportPlanConfig = getExportPlanConfig(entitlements.isPro ? "pro" : "basic")
-  const activeReviewFilters = entitlements.isPro
+  const exportPlanConfig = getExportPlanConfig(entitlements.isPaidPlan ? subscriptionPlan : "basic")
+  const activeReviewFilters = entitlements.isPaidPlan
     ? reviewFilters
     : { excludeQuotes: true, excludeReferences: true, minMatchWords: 8 }
   const externalIntegration = getExternalSourceIntegrationSummary()
@@ -765,6 +771,20 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     setAdvancedMetrics(null)
 
     try {
+      // Consume review credit (admin is free, trial users decrement, paid plans consume 1 credit)
+      if (user.role !== "admin") {
+        const creditResult = await consumeReviewCredit(user.id)
+        if (!creditResult.success) {
+          setIsChecking(false)
+          toast.error(creditResult.error || "Failed to consume review credit")
+          return
+        }
+        setProCredits(creditResult.remainingCredits)
+        if (creditResult.trialSubmissionsUsed !== undefined) {
+          setTrialSubmissionsUsed(creditResult.trialSubmissionsUsed)
+        }
+      }
+
       const { matches: fingerprintMatches } = await getFingerprintRegistryMatches(text)
       
       toast.info("Analyzing document with advanced detection algorithms...")
@@ -999,13 +1019,13 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
       return
     }
 
-    if (!entitlements.isPro) {
-      toast.info("🔒 Humanizer is available in Pro. Upgrade to unlock this feature.")
+    if (!entitlements.isPaidPlan && user.role !== "admin") {
+      toast.info("🔒 Humanizer is available for Admin, Pro, and Team plans. Upgrade to unlock this feature.")
       return
     }
 
     if (!entitlements.canUseHumanizer) {
-      toast.error("No Pro credits remaining. Please buy credits to continue using Humanizer.")
+      toast.error("No credits remaining. Please buy credits to continue using Humanizer.")
       return
     }
 
@@ -1079,13 +1099,24 @@ Return ONLY a valid JSON object:
   }
 
   const handleUpgradeToPro = async () => {
-    const result = await upgradeToPro(user.id, 25)
+    const result = await upgradeToPlan(user.id, "pro")
     if (result.success) {
       setSubscriptionPlan("pro")
       setProCredits(result.credits)
       toast.success(`Upgraded to Pro. ${result.credits} credits added.`)
     } else {
       toast.error(result.error || "Failed to upgrade to Pro")
+    }
+  }
+
+  const handleUpgradeToTeam = async () => {
+    const result = await upgradeToPlan(user.id, "team")
+    if (result.success) {
+      setSubscriptionPlan("team")
+      setProCredits(result.credits)
+      toast.success(`Upgraded to Team. ${result.credits} credits added.`)
+    } else {
+      toast.error(result.error || "Failed to upgrade to Team")
     }
   }
 
@@ -1109,6 +1140,17 @@ Return ONLY a valid JSON object:
     if (score >= 80) return <CheckCircle size={20} className="text-green-600" weight="fill" />
     if (score >= 60) return <WarningCircle size={20} className="text-yellow-600" weight="fill" />
     return <XCircle size={20} className="text-red-600" weight="fill" />
+  }
+
+  // Gate: show paywall for basic users without trial / with exhausted trial (admin bypasses)
+  if (user.role !== "admin" && !entitlements.canAccessReview) {
+    return (
+      <UpgradePaywall
+        user={user}
+        feature="review"
+        onUpgraded={() => window.location.reload()}
+      />
+    )
   }
 
   return (
@@ -1262,22 +1304,27 @@ Return ONLY a valid JSON object:
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   onClick={humanizeText}
-                  disabled={!text.trim() || isHumanizing || isChecking || (entitlements.isPro && proCredits <= 0)}
+                  disabled={!text.trim() || isHumanizing || isChecking || (entitlements.isPaidPlan && proCredits <= 0)}
                   variant="outline"
                   size="sm"
                   className="gap-2"
                 >
                   <LockKey size={16} weight="duotone" />
-                  {isHumanizing ? "Humanizing..." : entitlements.isPro ? `Humanize (Pro: ${proCredits})` : "Humanize (Pro)"}
+                  {isHumanizing ? "Humanizing..." : entitlements.isPaidPlan ? `Humanize (${subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)}: ${proCredits})` : "Humanize (Pro/Team)"}
                 </Button>
 
-                {!entitlements.isPro && (
-                  <Button onClick={handleUpgradeToPro} variant="secondary" size="sm">
-                    Upgrade to Pro
-                  </Button>
+                {!entitlements.isPaidPlan && user.role !== "admin" && (
+                  <div className="flex gap-1">
+                    <Button onClick={handleUpgradeToPro} variant="secondary" size="sm">
+                      Upgrade to Pro
+                    </Button>
+                    <Button onClick={handleUpgradeToTeam} variant="outline" size="sm">
+                      Team
+                    </Button>
+                  </div>
                 )}
 
-                {entitlements.isPro && proCredits <= 0 && (
+                {entitlements.isPaidPlan && proCredits <= 0 && (
                   <Button onClick={handleBuyCredits} variant="secondary" size="sm">
                     Buy Credits
                   </Button>
@@ -1313,9 +1360,9 @@ Return ONLY a valid JSON object:
               <p className="text-xs text-muted-foreground">
                 These controls emulate Turnitin-style exclusions and affect displayed similarity/integrity values.
               </p>
-              {!entitlements.isPro && (
+              {!entitlements.isPaidPlan && user.role !== "admin" && (
                 <p className="text-xs text-primary">
-                  Advanced filter customization is available on Pro. Basic uses safe defaults (quotes/references excluded, min match words = 8).
+                  Advanced filter customization is available on Pro/Team. Basic uses safe defaults (quotes/references excluded, min match words = 8).
                 </p>
               )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1323,7 +1370,7 @@ Return ONLY a valid JSON object:
                   <input
                     type="checkbox"
                     checked={reviewFilters.excludeQuotes}
-                    disabled={!entitlements.isPro}
+                    disabled={!entitlements.isPaidPlan && user.role !== "admin"}
                     onChange={(e) => setReviewFilters((prev) => ({ ...prev, excludeQuotes: e.target.checked }))}
                   />
                   Exclude quoted matches
@@ -1332,7 +1379,7 @@ Return ONLY a valid JSON object:
                   <input
                     type="checkbox"
                     checked={reviewFilters.excludeReferences}
-                    disabled={!entitlements.isPro}
+                    disabled={!entitlements.isPaidPlan && user.role !== "admin"}
                     onChange={(e) => setReviewFilters((prev) => ({ ...prev, excludeReferences: e.target.checked }))}
                   />
                   Exclude references/bibliography
@@ -1344,7 +1391,7 @@ Return ONLY a valid JSON object:
                     min={0}
                     max={30}
                     value={reviewFilters.minMatchWords}
-                    disabled={!entitlements.isPro}
+                    disabled={!entitlements.isPaidPlan && user.role !== "admin"}
                     onChange={(e) => {
                       const value = Number(e.target.value)
                       setReviewFilters((prev) => ({ ...prev, minMatchWords: Number.isNaN(value) ? 0 : value }))

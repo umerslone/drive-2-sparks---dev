@@ -148,8 +148,6 @@ export function AdminDashboard() {
 
   useEffect(() => {
     loadData()
-    const intervalId = setInterval(loadData, 30000)
-    return () => clearInterval(intervalId)
   }, [loadData])
 
   const handleRoleChange = async (email: string, newRole: UserRole) => {

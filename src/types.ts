@@ -51,14 +51,24 @@ export interface SavedStrategy {
 
 export type UserRole = "admin" | "client"
 
-export type SubscriptionPlan = "basic" | "pro"
+export type SubscriptionPlan = "basic" | "pro" | "team"
 export type SubscriptionStatus = "active" | "inactive" | "grace"
+
+export interface TrialInfo {
+  requested: boolean
+  requestedAt?: number
+  creditsGranted: number
+  submissionsUsed: number
+  maxSubmissions: number
+  exhausted: boolean
+}
 
 export interface SubscriptionInfo {
   plan: SubscriptionPlan
   status: SubscriptionStatus
   proCredits: number
   updatedAt: number
+  trial?: TrialInfo
 }
 
 export interface UserProfile {
