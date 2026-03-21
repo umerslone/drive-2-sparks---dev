@@ -13,10 +13,14 @@ import "./index.css"
 const bootstrap = async () => {
   try {
     if (typeof window !== "undefined" && !(window as unknown as { spark?: unknown }).spark) {
-      await import("@github/spark/spark")
+      // Race the SDK import against a 4-second timeout so the app never hangs
+      await Promise.race([
+        import("@github/spark/spark"),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Spark SDK import timed out")), 4000))
+      ])
     }
   } catch (e) {
-    console.warn("Spark SDK import failed, continuing with shim:", e)
+    console.warn("Spark SDK import failed or timed out, continuing with shim:", e)
   }
 
   initializeSparkShim()
@@ -36,14 +40,15 @@ const bootstrap = async () => {
   }
 }
 
-// Safety net: remove splash after 8 seconds no matter what
+// Safety net: remove splash after 5 seconds no matter what
 setTimeout(() => {
   const splash = document.getElementById("app-splash")
   if (splash) {
+    console.warn("Safety timeout: removing splash screen after 5s")
     splash.classList.add("fade-out")
     setTimeout(() => splash.remove(), 500)
   }
-}, 8000)
+}, 5000)
 
 bootstrap().catch((err) => {
   console.error("Bootstrap failed:", err)
