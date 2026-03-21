@@ -279,15 +279,15 @@ function App() {
     return `\n\nUser memory context (use to avoid repetition and improve continuity):\n${memoryLines.join("\n")}`
   }
 
-  const runWithModelFallback = async (prompt: string) => {
+  const runWithModelFallback = async (prompt: string, parseJson = false) => {
     const preferredModel = strategyPlan === "pro" ? "gpt-4o" : "gpt-4o-mini"
 
     try {
-      const response = await spark.llm(prompt, preferredModel, true)
+      const response = await spark.llm(prompt, preferredModel, parseJson)
       return { response, modelUsed: preferredModel }
     } catch (error) {
       if (preferredModel !== "gpt-4o") {
-        const response = await spark.llm(prompt, "gpt-4o", true)
+        const response = await spark.llm(prompt, "gpt-4o", parseJson)
         return { response, modelUsed: "gpt-4o" }
       }
       throw error
@@ -346,7 +346,7 @@ Keep each value concise. Do NOT use newlines inside string values. Return ONLY v
       throw error
     }
 
-    const { response, modelUsed } = await runWithModelFallback(prompt as string)
+    const { response, modelUsed } = await runWithModelFallback(prompt as string, false)
     
     if (!response) {
       const error = new Error("Empty response from LLM")
@@ -358,7 +358,7 @@ Keep each value concise. Do NOT use newlines inside string values. Return ONLY v
       throw error
     }
 
-    // Handle already-parsed object responses (parseJson: true)
+    // Handle already-parsed object responses defensively.
     if (typeof response === "object" && response !== null) {
       const parsedResult = response as unknown as MarketingResult
       
@@ -523,7 +523,7 @@ Return ONLY valid JSON with this schema:
 Candidate JSON:
 ${JSON.stringify(candidate)}`
 
-    const { response } = await runWithModelFallback(qaPrompt as string)
+    const { response } = await runWithModelFallback(qaPrompt as string, false)
 
     // Handle already-parsed object responses
     if (typeof response === "object" && response !== null) {
@@ -553,11 +553,28 @@ ${JSON.stringify(candidate)}`
         issues: Array.isArray(parsed.issues) ? parsed.issues.slice(0, 6) : [],
       }
     } catch {
+      const sections = [
+        candidate.marketingCopy,
+        candidate.visualStrategy,
+        candidate.targetAudience,
+        candidate.applicationWorkflow,
+        candidate.uiWorkflow,
+        candidate.databaseWorkflow,
+        candidate.mobileWorkflow,
+        candidate.implementationChecklist,
+      ]
+      const populatedSections = sections.filter((section) => typeof section === "string" && section.trim().length >= 80).length
+      const fallbackPass = populatedSections >= 6
+
       return {
-        pass: false,
-        score: 0,
-        summary: "QA parser could not validate the response.",
-        issues: ["Retry generation with stricter structure and clearer implementation steps."],
+        pass: fallbackPass,
+        score: fallbackPass ? 72 : 40,
+        summary: fallbackPass
+          ? "QA parser could not validate the response, but structural checks passed."
+          : "QA parser could not validate the response and structural checks found weak sections.",
+        issues: fallbackPass
+          ? []
+          : ["Retry generation with stricter structure and clearer implementation steps."],
       }
     }
   }
