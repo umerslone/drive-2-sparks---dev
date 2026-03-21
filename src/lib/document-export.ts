@@ -1,8 +1,9 @@
 import { SavedStrategy, BusinessCanvasModel, PitchDeck } from "@/types"
-import { REPORT_BRAND, reportLogoMarkup } from "@/lib/report-branding"
+import { REPORT_BRAND, reportLogoMarkupAsync } from "@/lib/report-branding"
 
-export function exportStrategyAsWord(strategy: SavedStrategy) {
+export async function exportStrategyAsWord(strategy: SavedStrategy) {
   const brand = REPORT_BRAND
+  const logoHtml = await reportLogoMarkupAsync(36)
   const htmlContent = `
 <!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
@@ -88,7 +89,7 @@ export function exportStrategyAsWord(strategy: SavedStrategy) {
 </head>
 <body>
   <div class="header">
-    <div style="margin-bottom: 8pt;">${reportLogoMarkup(36)}</div>
+    <div style="margin-bottom: 8pt;">${logoHtml}</div>
     <h1>${brand.companyName}</h1>
     <div>${brand.projectName}</div>
   </div>
@@ -180,8 +181,9 @@ export function exportStrategyAsWord(strategy: SavedStrategy) {
   URL.revokeObjectURL(url)
 }
 
-export function exportBusinessCanvasAsWord(canvas: BusinessCanvasModel, ideaName: string) {
+export async function exportBusinessCanvasAsWord(canvas: BusinessCanvasModel, ideaName: string) {
   const brand = REPORT_BRAND
+  const logoHtml = await reportLogoMarkupAsync(36)
   const htmlContent = `
 <!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
@@ -262,7 +264,7 @@ export function exportBusinessCanvasAsWord(canvas: BusinessCanvasModel, ideaName
 </head>
 <body>
   <div class="header">
-    <div style="margin-bottom: 8pt;">${reportLogoMarkup(36)}</div>
+    <div style="margin-bottom: 8pt;">${logoHtml}</div>
     <h1>${brand.companyName}</h1>
     <div>${brand.projectName}</div>
   </div>
@@ -346,8 +348,9 @@ export function exportBusinessCanvasAsWord(canvas: BusinessCanvasModel, ideaName
   URL.revokeObjectURL(url)
 }
 
-export function exportBusinessCanvasAsPptxWord(canvas: BusinessCanvasModel, ideaName: string) {
+export async function exportBusinessCanvasAsPptxWord(canvas: BusinessCanvasModel, ideaName: string) {
   const brand = REPORT_BRAND
+  const logoHtml = await reportLogoMarkupAsync(40)
 
   const slides = [
     { title: "Value Proposition", content: canvas.valueProposition, color: brand.colors.primary },
@@ -397,7 +400,7 @@ export function exportBusinessCanvasAsPptxWord(canvas: BusinessCanvasModel, idea
 </head>
 <body>
   <div class="cover">
-    <div style="margin-bottom: 12pt;">${reportLogoMarkup(40)}</div>
+    <div style="margin-bottom: 12pt;">${logoHtml}</div>
     <h1>${ideaName}</h1>
     <div class="cover-subtitle">Business Model Canvas</div>
     <div style="margin-top: 24pt; font-size: 12pt;">
@@ -432,8 +435,9 @@ export function exportBusinessCanvasAsPptxWord(canvas: BusinessCanvasModel, idea
   URL.revokeObjectURL(url)
 }
 
-export function exportPitchDeckAsWord(pitchDeck: PitchDeck, ideaName: string) {
+export async function exportPitchDeckAsWord(pitchDeck: PitchDeck, ideaName: string) {
   const brand = REPORT_BRAND
+  const logoHtml = await reportLogoMarkupAsync(40)
   const slidesHtml = pitchDeck.slides.map((slide, index) => `
     <div class="slide">
       <h2 style="background: ${index % 2 === 0 ? brand.colors.primary : brand.colors.secondary}; color: white; padding: 12pt;">Slide ${slide.slideNumber}: ${slide.title}</h2>
@@ -534,7 +538,7 @@ export function exportPitchDeckAsWord(pitchDeck: PitchDeck, ideaName: string) {
 </head>
 <body>
   <div class="cover">
-    <div style="margin-bottom: 12pt;">${reportLogoMarkup(40)}</div>
+    <div style="margin-bottom: 12pt;">${logoHtml}</div>
     <h1>${ideaName}</h1>
     <div class="cover-subtitle">Pitch Deck</div>
     <div style="margin-top: 24pt; font-size: 12pt;">

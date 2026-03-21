@@ -1,10 +1,11 @@
 import { SavedReviewDocument, SavedStrategy, BusinessCanvasModel, PitchDeck } from "@/types"
 import { format } from "date-fns"
 import { ReviewComputationMeta, ReviewFilters, SectionSummary, enrichReviewResult } from "@/lib/review-engine"
-import { REPORT_BRAND, reportLogoMarkup } from "@/lib/report-branding"
+import { REPORT_BRAND, reportLogoMarkupAsync } from "@/lib/report-branding"
 
 export async function exportStrategyAsPDF(strategy: SavedStrategy) {
   const brand = REPORT_BRAND
+  const logoHtml = await reportLogoMarkupAsync(42)
   const htmlContent = `
 <!DOCTYPE html>
 <html>
@@ -25,7 +26,7 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
       <div style="font-weight: 700; color: ${brand.colors.primary};">${brand.companyName}</div>
       <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
     </div>
-    ${reportLogoMarkup(42)}
+    ${logoHtml}
   </div>
   <h1>${strategy.name}</h1>
   <p><strong>Created:</strong> ${format(strategy.timestamp, "MMM d, yyyy")}</p>
@@ -81,7 +82,7 @@ export async function exportReviewToPDF(
   const sections = options?.sections || []
   const filters = options?.filters
 
-  const techpigeonLogo = reportLogoMarkup(50)
+  const techpigeonLogo = await reportLogoMarkupAsync(50)
 
   const highlightText = (text: string) => {
     let highlightedText = text
@@ -597,6 +598,7 @@ export async function exportReviewToPDF(
 
 export async function exportBusinessCanvasAsPDF(canvas: BusinessCanvasModel, ideaName: string) {
   const brand = REPORT_BRAND
+  const logoHtml = await reportLogoMarkupAsync(42)
 
   const sections = [
     { title: "Value Proposition", content: canvas.valueProposition, color: brand.colors.primary },
@@ -641,7 +643,7 @@ export async function exportBusinessCanvasAsPDF(canvas: BusinessCanvasModel, ide
       <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${brand.companyName}</div>
       <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
     </div>
-    ${reportLogoMarkup(42)}
+    ${logoHtml}
   </div>
   <h1>Business Model Canvas</h1>
   <div class="meta">
@@ -681,6 +683,7 @@ export async function exportBusinessCanvasAsPDF(canvas: BusinessCanvasModel, ide
 
 export async function exportPitchDeckAsPDF(pitchDeck: PitchDeck, ideaName: string) {
   const brand = REPORT_BRAND
+  const logoHtml = await reportLogoMarkupAsync(42)
 
   const slidesHtml = pitchDeck.slides.map((slide, index) => `
     <div class="slide" style="page-break-inside: avoid; margin-bottom: 24px;">
@@ -714,7 +717,7 @@ export async function exportPitchDeckAsPDF(pitchDeck: PitchDeck, ideaName: strin
       <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${brand.companyName}</div>
       <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
     </div>
-    ${reportLogoMarkup(42)}
+    ${logoHtml}
   </div>
   <h1>Pitch Deck: ${ideaName}</h1>
   <div class="meta">

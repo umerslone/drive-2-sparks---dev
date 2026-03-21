@@ -2018,7 +2018,7 @@ ${JSON.stringify(candidate)}`
             </TabsContent>
 
             <TabsContent value="ideas" className="space-y-6">
-              <IdeaGeneration userId={user.id} />
+              <IdeaGeneration userId={user.id} user={user} />
             </TabsContent>
 
             <TabsContent value="plagiarism" className="space-y-6">

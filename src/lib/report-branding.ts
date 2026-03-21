@@ -1,5 +1,30 @@
 import techpigeonLogo from "@/assets/images/logo.png"
 
+// Cache the base64 version of the logo for use in exported reports
+let cachedLogoDataUrl: string | null = null
+
+async function getLogoAsDataUrl(): Promise<string> {
+  if (cachedLogoDataUrl) return cachedLogoDataUrl
+  try {
+    const response = await fetch(techpigeonLogo)
+    const blob = await response.blob()
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        cachedLogoDataUrl = reader.result as string
+        resolve(cachedLogoDataUrl)
+      }
+      reader.onerror = () => resolve(techpigeonLogo)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return techpigeonLogo
+  }
+}
+
+// Eagerly load the logo data URL on module import
+getLogoAsDataUrl()
+
 export const REPORT_BRAND = {
   companyName: "Techpigeon",
   projectName: "Drive 2 AI Sparks",
@@ -19,5 +44,12 @@ export const REPORT_BRAND = {
 }
 
 export function reportLogoMarkup(size = 44): string {
-  return `<img src="${REPORT_BRAND.logoPath}" alt="${REPORT_BRAND.companyName} logo" width="${size}" height="${size}" style="object-fit: contain;" />`
+  // Use cached base64 data URL if available (works in blob:// context for reports)
+  const logoSrc = cachedLogoDataUrl || REPORT_BRAND.logoPath
+  return `<img src="${logoSrc}" alt="${REPORT_BRAND.companyName} logo" width="${size}" height="${size}" style="object-fit: contain;" />`
+}
+
+export async function reportLogoMarkupAsync(size = 44): Promise<string> {
+  const logoSrc = await getLogoAsDataUrl()
+  return `<img src="${logoSrc}" alt="${REPORT_BRAND.companyName} logo" width="${size}" height="${size}" style="object-fit: contain;" />`
 }

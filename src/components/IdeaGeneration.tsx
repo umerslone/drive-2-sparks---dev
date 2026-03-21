@@ -9,22 +9,25 @@ import {
   FloppyDisk, 
   ArrowClockwise, 
   ChartDonut,
-  PresentationChart
+  PresentationChart,
+  Lock
 } from "@phosphor-icons/react"
 import { motion, AnimatePresence } from "framer-motion"
-import { CookedIdea, BusinessCanvasModel, PitchDeck, SavedIdea, UserMemoryEntry } from "@/types"
+import { CookedIdea, BusinessCanvasModel, PitchDeck, SavedIdea, UserMemoryEntry, UserProfile } from "@/types"
 import { BusinessCanvasView } from "@/components/BusinessCanvasView"
 import { PitchDeckView } from "@/components/PitchDeckView"
 import { SaveIdeaDialog } from "@/components/SaveIdeaDialog"
 import { SavedIdeasList } from "@/components/SavedIdeasList"
 import { useSafeKV } from "@/hooks/useSafeKV"
 import { toast } from "sonner"
+import { getFeatureEntitlements } from "@/lib/subscription"
 
 interface IdeaGenerationProps {
   userId: string
+  user?: UserProfile
 }
 
-export function IdeaGeneration({ userId }: IdeaGenerationProps) {
+export function IdeaGeneration({ userId, user }: IdeaGenerationProps) {
   const [ideaInput, setIdeaInput] = useState("")
   const [isLoadingIdea, setIsLoadingIdea] = useState(false)
   const [isLoadingCanvas, setIsLoadingCanvas] = useState(false)
@@ -44,6 +47,10 @@ export function IdeaGeneration({ userId }: IdeaGenerationProps) {
   )
   const resultsRef = useRef<HTMLDivElement>(null)
 
+  // Pitch deck gating: Pro, Team, or Admin only
+  const entitlements = user ? getFeatureEntitlements(user) : null
+  const canAccessPitchDeck = user?.role === "admin" || entitlements?.isPaidPlan
+
   const buildMemoryContext = (): string => {
     const entries = userMemory ?? []
     if (entries.length === 0) return ""
@@ -54,6 +61,43 @@ export function IdeaGeneration({ userId }: IdeaGenerationProps) {
 
   const isValidInput = ideaInput.trim().length >= 10
 
+  const validateInputQuality = (text: string): { valid: boolean; reason?: string } => {
+    const trimmed = text.trim()
+    if (trimmed.length < 10) return { valid: false, reason: "Please enter at least 10 characters." }
+    if (trimmed.length < 30) return { valid: false, reason: "Please describe your business idea in more detail (at least 30 characters)." }
+
+    // Check for excessive repetition (e.g., "aaaa", "abcabc")
+    const words = trimmed.toLowerCase().split(/\s+/)
+    const uniqueWords = new Set(words)
+    if (words.length >= 5 && uniqueWords.size / words.length < 0.3) {
+      return { valid: false, reason: "Your input seems repetitive. Please describe a real business idea." }
+    }
+
+    // Check for gibberish: too many non-dictionary-like patterns
+    const alphaWords = words.filter(w => /^[a-z]+$/.test(w))
+    if (alphaWords.length >= 4) {
+      const avgWordLen = alphaWords.reduce((sum, w) => sum + w.length, 0) / alphaWords.length
+      const longGibberish = alphaWords.filter(w => w.length > 15).length
+      if (avgWordLen > 12 || longGibberish > alphaWords.length * 0.5) {
+        return { valid: false, reason: "Your input doesn't appear to describe a meaningful business idea. Please try again." }
+      }
+    }
+
+    // Check that input has at least 3 real words (length >= 2)
+    const meaningfulWords = words.filter(w => w.length >= 2)
+    if (meaningfulWords.length < 3) {
+      return { valid: false, reason: "Please describe your idea with at least a few words." }
+    }
+
+    // Check for too many special chars / numbers (not a real idea)
+    const alphaChars = trimmed.replace(/[^a-zA-Z]/g, "").length
+    if (alphaChars / trimmed.length < 0.4) {
+      return { valid: false, reason: "Your input contains too many numbers or special characters. Please describe a business idea in words." }
+    }
+
+    return { valid: true }
+  }
+
   const cleanJsonResponse = (raw: unknown): unknown => {
     // If spark.llm already parsed the response (parseJson: true), return as-is
     if (typeof raw === "object" && raw !== null) {
@@ -61,6 +105,7 @@ export function IdeaGeneration({ userId }: IdeaGenerationProps) {
     }
 
     if (typeof raw !== "string") {
+      console.warn("cleanJsonResponse: unexpected response type:", typeof raw)
       return {}
     }
 
@@ -81,7 +126,8 @@ export function IdeaGeneration({ userId }: IdeaGenerationProps) {
 
     try {
       return JSON.parse(cleanedResponse.trim())
-    } catch {
+    } catch (e) {
+      console.error("cleanJsonResponse: JSON parse failed:", e, "Raw:", cleanedResponse.substring(0, 200))
       return {}
     }
   }
@@ -188,14 +234,19 @@ export function IdeaGeneration({ userId }: IdeaGenerationProps) {
   }
 
   const cookIdea = async () => {
-    if (!isValidInput) {
-      toast.error("Please enter at least 10 characters")
+    const validation = validateInputQuality(ideaInput)
+    if (!validation.valid) {
+      toast.error(validation.reason || "Please enter a valid business idea")
       return
     }
 
     setIsLoadingIdea(true)
 
     try {
+      if (typeof spark === "undefined" || typeof spark.llm !== "function") {
+        throw new Error("AI service is not available. Please refresh the page.")
+      }
+
       const memoryContext = buildMemoryContext()
 
       const prompt = spark.llmPrompt`You are a world-class business mentor and innovation strategist.
@@ -261,6 +312,11 @@ CRITICAL: Return ONLY valid JSON with no markdown, no code blocks, no explanator
       return
     }
 
+    if (typeof spark === "undefined" || typeof spark.llm !== "function") {
+      toast.error("AI service is not available. Please refresh the page.")
+      return
+    }
+
     setIsLoadingCanvas(true)
 
     try {
@@ -270,25 +326,26 @@ Refined Idea: ${cookedIdea.refinedIdea}
 Target Market: ${cookedIdea.targetMarket}
 Revenue Model: ${cookedIdea.revenueModel}
 
-Return a valid JSON object with this exact structure:
-
-{
-  "keyPartners": "Detailed description of key partners, suppliers, and strategic alliances needed for this business (2-3 paragraphs)",
-  "keyActivities": "Core activities required to deliver the value proposition (2-3 paragraphs)",
-  "keyResources": "Critical assets, capabilities, and resources needed (2-3 paragraphs)",
-  "valueProposition": "The unique value this business creates for customers (2-3 paragraphs)",
-  "customerRelationships": "How the business will establish and maintain customer relationships (2-3 paragraphs)",
-  "channels": "How the product/service reaches customers (distribution, sales, marketing channels) (2-3 paragraphs)",
-  "customerSegments": "Detailed customer segments and their characteristics (2-3 paragraphs)",
-  "costStructure": "Major cost drivers and expense categories (2-3 paragraphs)",
-  "revenueStreams": "Revenue sources and pricing mechanisms (2-3 paragraphs)"
-}
+Return a valid JSON object with these keys: keyPartners, keyActivities, keyResources, valueProposition, customerRelationships, channels, customerSegments, costStructure, revenueStreams. Each value should be a detailed 2-3 paragraph string.
 
 CRITICAL: Return ONLY valid JSON with no markdown formatting.`
 
-      const response = await spark.llm(prompt, "gpt-4o", true)
+      let response: unknown
+      try {
+        response = await spark.llm(prompt, "gpt-4o", true)
+      } catch {
+        response = await spark.llm(prompt, "gpt-4o-mini", true)
+      }
+
       const parsedResult = cleanJsonResponse(response)
       const normalizedCanvas = normalizeBusinessCanvas(parsedResult)
+
+      // Verify we got real data (not all fallbacks)
+      const hasRealData = normalizedCanvas.valueProposition !== "Value proposition was not generated."
+        || normalizedCanvas.keyPartners !== "Key partners were not generated."
+      if (!hasRealData) {
+        console.error("Canvas generation returned empty data. Raw response:", response)
+      }
 
       setBusinessCanvas(normalizedCanvas)
 
@@ -328,81 +385,39 @@ CRITICAL: Return ONLY valid JSON with no markdown formatting.`
       return
     }
 
+    if (typeof spark === "undefined" || typeof spark.llm !== "function") {
+      toast.error("AI service is not available. Please refresh the page.")
+      return
+    }
+
     setIsLoadingPitch(true)
 
     try {
       const prompt = spark.llmPrompt`You are an expert pitch deck consultant. Create a compelling investor pitch deck based on this business idea:
 
-Original Idea: ${cookedIdea.originalIdea}
 Refined Idea: ${cookedIdea.refinedIdea}
 Market Opportunity: ${cookedIdea.marketOpportunity}
 Target Market: ${cookedIdea.targetMarket}
 Revenue Model: ${cookedIdea.revenueModel}
 
-Generate a pitch deck with exactly 8 slides. Return valid JSON with this structure:
+Generate a pitch deck with exactly 8 slides. Return valid JSON with keys: executiveSummary (string, 2 paragraphs), slides (array of 8 objects each with slideNumber, title, content, notes). Slide titles should be: Problem, Solution, Market Opportunity, Product/Service, Business Model, Go-to-Market Strategy, Competitive Advantage, Financial Projections & Ask. Each slide content should be 2-3 paragraphs, notes 1-2 paragraphs.
 
-{
-  "executiveSummary": "A compelling 2-paragraph executive summary that captures the essence of the opportunity",
-  "slides": [
-    {
-      "slideNumber": 1,
-      "title": "Problem",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    },
-    {
-      "slideNumber": 2,
-      "title": "Solution",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    },
-    {
-      "slideNumber": 3,
-      "title": "Market Opportunity",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    },
-    {
-      "slideNumber": 4,
-      "title": "Product/Service",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    },
-    {
-      "slideNumber": 5,
-      "title": "Business Model",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    },
-    {
-      "slideNumber": 6,
-      "title": "Go-to-Market Strategy",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    },
-    {
-      "slideNumber": 7,
-      "title": "Competitive Advantage",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    },
-    {
-      "slideNumber": 8,
-      "title": "Financial Projections & Ask",
-      "content": "Detailed slide content (2-3 paragraphs)",
-      "notes": "Speaker notes for this slide (1-2 paragraphs)"
-    }
-  ]
-}
+CRITICAL: Return ONLY valid JSON with no markdown.`
 
-CRITICAL: Return ONLY valid JSON.`
+      let response: unknown
+      try {
+        response = await spark.llm(prompt, "gpt-4o", true)
+      } catch {
+        response = await spark.llm(prompt, "gpt-4o-mini", true)
+      }
 
-      const response = await spark.llm(prompt, "gpt-4o", true)
       const parsedResult = cleanJsonResponse(response)
       const normalizedPitchDeck = normalizePitchDeck(parsedResult)
 
       if (normalizedPitchDeck.slides.length === 0) {
-        throw new Error("Pitch deck response did not include any slides")
+        console.error("Pitch deck returned no slides. Raw response:", response)
+        toast.error("Pitch Deck generation returned incomplete data. Please try again.")
+        return
       }
 
       setPitchDeck(normalizedPitchDeck)
@@ -692,11 +707,17 @@ CRITICAL: Return ONLY valid JSON.`
                     </Button>
 
                     <Button
-                      onClick={generatePitchDeck}
+                      onClick={() => {
+                        if (!canAccessPitchDeck) {
+                          toast.error("Pitch Deck is a premium feature. Upgrade to Pro or Team plan to create investor-ready pitch decks.")
+                          return
+                        }
+                        generatePitchDeck()
+                      }}
                       disabled={!cookedIdea || isLoadingPitch}
                       size="lg"
                       variant="outline"
-                      className="gap-2 h-auto py-6 flex-col"
+                      className={`gap-2 h-auto py-6 flex-col ${!canAccessPitchDeck ? "opacity-75" : ""}`}
                     >
                       {isLoadingPitch ? (
                         <>
@@ -710,8 +731,13 @@ CRITICAL: Return ONLY valid JSON.`
                         <>
                           <PresentationChart size={32} weight="duotone" className="text-accent" />
                           <div>
-                            <div className="font-semibold">Generate Pitch Deck</div>
-                            <div className="text-xs text-muted-foreground font-normal">{cookedIdea ? "Free - Investor Ready" : "Cook idea first"}</div>
+                            <div className="font-semibold flex items-center gap-1.5">
+                              Generate Pitch Deck
+                              {!canAccessPitchDeck && <Lock size={14} weight="bold" className="text-muted-foreground" />}
+                            </div>
+                            <div className="text-xs text-muted-foreground font-normal">
+                              {!canAccessPitchDeck ? "Pro / Team / Admin only" : cookedIdea ? "Investor Ready" : "Cook idea first"}
+                            </div>
                           </div>
                         </>
                       )}
