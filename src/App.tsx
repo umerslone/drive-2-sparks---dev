@@ -319,46 +319,26 @@ Apply the above concept mode guidance to provide domain-specific insights.`
       : `Selected Concept Mode: Auto
 Automatically select the most relevant archetypes and implementation patterns based on the topic.`
 
-    const prompt = spark.llmPrompt`You are an elite marketing strategist, solutions architect, and AI automation consultant. Based on the topic below, produce a comprehensive strategy and implementation guidance at production depth.
+    const prompt = spark.llmPrompt`You are an elite marketing strategist and solutions architect. Based on the topic below, produce a comprehensive strategy.
 
-Topic/Description: ${description}
+Topic: ${description}
 
 ${contextSection}
 
-${qaFeedback ? `QA feedback to fix in this attempt:\n${qaFeedback}` : ""}
+${qaFeedback ? `Fix these issues from QA review:\n${qaFeedback}` : ""}
 ${memoryContext}
 
-CRITICAL JSON FORMATTING RULES - FOLLOW EXACTLY:
-1. Return ONLY a valid JSON object with no markdown, no code blocks, no text before or after
-2. ALL string values MUST use straight double quotes (") NOT curly/smart quotes ("")
-3. Inside string values, escape ALL special characters:
-   - Use \\" for quotes
-   - Use \\\\ for backslashes  
-   - Use \\n for line breaks (NOT actual line breaks)
-   - Do NOT use unescaped quotes, tabs, or newlines
-4. Keep ALL content as plain text within string values - no nested JSON structures
-5. Each string value MUST be on a single logical line (use \\n for breaks, not actual newlines)
-6. Do NOT include any text outside the JSON object
+Return a JSON object with exactly these 8 string properties:
+- marketingCopy: 2-3 paragraphs of persuasive marketing copy
+- visualStrategy: Visual strategy and branding recommendations
+- targetAudience: Target audience analysis and segmentation
+- applicationWorkflow: Implementation workflow and architecture steps
+- uiWorkflow: UI/UX implementation guidance
+- databaseWorkflow: Database design and data management guidance
+- mobileWorkflow: Mobile implementation and responsive design guidance
+- implementationChecklist: Sprint-ready tasks and implementation checklist
 
-Required JSON structure with exactly these eight properties:
-
-{
-  "marketingCopy": "2-3 paragraphs of persuasive marketing copy. Use only plain text with \\n for paragraph breaks. No special characters.",
-  "visualStrategy": "Visual strategy recommendations as plain text paragraphs. Use \\n for breaks. No special formatting.",
-  "targetAudience": "Target audience description as plain text. Use \\n for breaks. Keep it simple.",
-  "applicationWorkflow": "Implementation workflow as plain text with hyphens for bullets. Use \\n between items. No complex formatting.",
-  "uiWorkflow": "UI implementation guidance as plain text. Use hyphens and \\n. Keep it simple.",
-  "databaseWorkflow": "Database guidance as plain text. Use hyphens and \\n. No special characters.",
-  "mobileWorkflow": "Mobile implementation guidance as plain text. Use hyphens and \\n. Simple formatting only.",
-  "implementationChecklist": "Sprint tasks as plain text checklist. Use hyphens and \\n. Keep concise."
-}
-
-CRITICAL REMINDERS:
-- NO actual line breaks in string values - use \\n
-- NO unescaped quotes - use \\" 
-- NO special/curly quotes - use straight quotes only
-- Keep content concise to avoid string termination issues
-- Validate your JSON is parseable before returning`
+Each value should be a detailed multi-paragraph string. Return ONLY valid JSON.`
 
     if (typeof spark.llm !== "function") {
       const error = new Error("Spark LLM function is not available.")
@@ -432,34 +412,40 @@ CRITICAL REMINDERS:
     try {
       parsedResult = JSON.parse(cleanedResponse) as MarketingResult
     } catch (parseError) {
-      console.error(`Attempt ${attemptNumber} - JSON parse failed:`, parseError)
-      console.error(`Problematic JSON around error position:`)
+      console.error(`Attempt ${attemptNumber} - JSON parse failed, trying repair...`)
       
-      if (parseError instanceof SyntaxError) {
-        const match = parseError.message.match(/position (\d+)/)
-        if (match) {
-          const pos = parseInt(match[1], 10)
-          const start = Math.max(0, pos - 100)
-          const end = Math.min(cleanedResponse.length, pos + 100)
-          console.error(`Context: ...${cleanedResponse.substring(start, end)}...`)
-        }
+      // Attempt to repair common JSON issues
+      try {
+        let repaired = cleanedResponse
+          // Fix trailing commas before closing braces
+          .replace(/,\s*}/g, '}')
+          .replace(/,\s*]/g, ']')
+          // Fix unescaped newlines inside strings (replace with space)
+          .replace(/(?<=": "(?:[^"\\]|\\.)*)\n(?=[^"]*")/g, ' ')
+          // Fix control characters
+          .replace(/[\x00-\x1F\x7F]/g, (ch) => ch === '\n' || ch === '\r' || ch === '\t' ? ' ' : '')
+        
+        parsedResult = JSON.parse(repaired) as MarketingResult
+        console.log(`Attempt ${attemptNumber} - JSON repair succeeded`)
+      } catch {
+        console.error(`Attempt ${attemptNumber} - JSON repair also failed`)
+        
+        await logError(
+          "JSON parse error in LLM response",
+          parseError instanceof Error ? parseError : new Error(String(parseError)),
+          "generation",
+          "high",
+          user?.id,
+          {
+            attemptNumber,
+            responseLength: cleanedResponse.length,
+            firstChars: cleanedResponse.substring(0, 200),
+            lastChars: cleanedResponse.substring(Math.max(0, cleanedResponse.length - 200)),
+          }
+        )
+        
+        throw parseError
       }
-      
-      await logError(
-        "JSON parse error in LLM response",
-        parseError instanceof Error ? parseError : new Error(String(parseError)),
-        "generation",
-        "high",
-        user?.id,
-        {
-          attemptNumber,
-          responseLength: cleanedResponse.length,
-          firstChars: cleanedResponse.substring(0, 200),
-          lastChars: cleanedResponse.substring(Math.max(0, cleanedResponse.length - 200)),
-        }
-      )
-      
-      throw parseError
     }
     
     console.log(`Attempt ${attemptNumber} - Successfully parsed with keys:`, Object.keys(parsedResult))
