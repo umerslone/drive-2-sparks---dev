@@ -29,7 +29,7 @@ const DEFAULT_PLAN_CONFIG: Record<SubscriptionPlan, StrategyPlanConfig> = {
     maxSavedStrategies: 20,
     monthlyBudgetCents: 500,
     enableQaLoop: false,
-    maxWorkflowRetries: 1,
+    maxWorkflowRetries: 2,
   },
   pro: {
     plan: "pro",

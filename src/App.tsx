@@ -381,6 +381,20 @@ CRITICAL REMINDERS:
     // Handle already-parsed object responses (parseJson: true)
     if (typeof response === "object" && response !== null) {
       const parsedResult = response as unknown as MarketingResult
+      
+      // Validate that it has the expected shape
+      if (!parsedResult.marketingCopy && !parsedResult.visualStrategy && !parsedResult.targetAudience) {
+        console.warn("Object response missing expected fields, keys:", Object.keys(parsedResult))
+        // Try to extract from nested structure if LLM wrapped it
+        const keys = Object.keys(parsedResult)
+        if (keys.length === 1 && typeof (parsedResult as Record<string, unknown>)[keys[0]] === "object") {
+          const nested = (parsedResult as Record<string, unknown>)[keys[0]] as MarketingResult
+          if (nested.marketingCopy || nested.visualStrategy) {
+            return { result: nested, modelUsed }
+          }
+        }
+      }
+      
       return { result: parsedResult, modelUsed }
     }
 
