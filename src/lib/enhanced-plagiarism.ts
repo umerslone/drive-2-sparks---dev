@@ -57,11 +57,21 @@ export async function performEnhancedPlagiarismCheck(
 
     if (!basicCleanup.endsWith("}")) {
       let truncated = basicCleanup
+
+      // Close unterminated string value first
       const quoteCount = (truncated.match(/(?<!\\)"/g) || []).length
       if (quoteCount % 2 !== 0) {
         truncated += '"'
       }
 
+      // Close any open arrays before braces
+      const openBrackets = (truncated.match(/\[/g) || []).length
+      const closeBrackets = (truncated.match(/\]/g) || []).length
+      for (let i = 0; i < openBrackets - closeBrackets; i++) {
+        truncated += "]"
+      }
+
+      // Close any open braces
       const openBraces = (truncated.match(/{/g) || []).length
       const closeBraces = (truncated.match(/}/g) || []).length
       for (let i = 0; i < openBraces - closeBraces; i++) {
@@ -69,6 +79,23 @@ export async function performEnhancedPlagiarismCheck(
       }
 
       repairAttempts.push(truncated)
+
+      // Also try removing the last incomplete property entirely and closing cleanly
+      const lastCompleteField = basicCleanup.lastIndexOf(',"')
+      if (lastCompleteField > 0) {
+        let trimmed = basicCleanup.substring(0, lastCompleteField)
+        const tOpenBrackets = (trimmed.match(/\[/g) || []).length
+        const tCloseBrackets = (trimmed.match(/\]/g) || []).length
+        for (let i = 0; i < tOpenBrackets - tCloseBrackets; i++) {
+          trimmed += "]"
+        }
+        const tOpenBraces = (trimmed.match(/{/g) || []).length
+        const tCloseBraces = (trimmed.match(/}/g) || []).length
+        for (let i = 0; i < tOpenBraces - tCloseBraces; i++) {
+          trimmed += "}"
+        }
+        repairAttempts.push(trimmed)
+      }
     }
 
     for (const attempt of repairAttempts) {
@@ -106,54 +133,19 @@ ADVANCED DETECTION FEATURES:
 - Semantic consistency (${advancedMetrics.semanticConsistencyScore}%)
 
 Return ONLY a valid JSON object with NO markdown, NO code blocks, NO text before or after.
+Keep all string values short (1-2 sentences max). Limit highlights to 3 items, aiHighlights to 3 items, recommendations to 4 items, validReferences to 3 items, detectedSources to 3 items.
 
 {
-  "overallScore": <0-100, higher is more original>,
+  "overallScore": <0-100>,
   "plagiarismPercentage": <0-100>,
   "aiContentPercentage": <0-100>,
-  "highlights": [
-    {
-      "text": "<suspected passage>",
-      "startIndex": <position>,
-      "endIndex": <position>,
-      "severity": "<high|medium|low>",
-      "source": "<source if identified>",
-      "confidence": <0-100>
-    }
-  ],
-  "aiHighlights": [
-    {
-      "text": "<AI-likely passage>",
-      "startIndex": <position>,
-      "endIndex": <position>,
-      "confidence": <0-100>,
-      "indicators": ["<indicator1>", "<indicator2>"]
-    }
-  ],
-  "summary": "<comprehensive analysis>",
-  "recommendations": ["<rec1>", "<rec2>"],
-  "turnitinReady": <boolean>,
-  "validReferences": [
-    {
-      "reference": "<ref text>",
-      "isValid": <boolean>,
-      "reason": "<why>"
-    }
-  ],
-  "detectedSources": [
-    {
-      "source": "<source>",
-      "similarity": <0-100>,
-      "confidence": <0-100>
-    }
-  ],
-  "enhancedMetrics": {
-    "aiProbability": ${advancedMetrics.aiProbability},
-    "plagiarismProbability": ${advancedMetrics.plagiarismProbability},
-    "integrityScore": ${advancedMetrics.integrityScore},
-    "confidenceLevel": "${advancedMetrics.confidenceLevel}",
-    "riskFactors": ${JSON.stringify(advancedMetrics.riskFactors)}
-  }
+  "highlights": [{"text": "<passage>", "startIndex": 0, "endIndex": 50, "severity": "high", "source": "", "confidence": 80}],
+  "aiHighlights": [{"text": "<passage>", "startIndex": 0, "endIndex": 50, "confidence": 80, "indicators": ["pattern"]}],
+  "summary": "<2-3 sentence analysis>",
+  "recommendations": ["<short rec>"],
+  "turnitinReady": false,
+  "validReferences": [{"reference": "<ref>", "isValid": true, "reason": "<why>"}],
+  "detectedSources": [{"source": "<source>", "similarity": 0, "confidence": 0}]
 }`
 
       const response = await spark.llm(prompt, "gpt-4o", false)

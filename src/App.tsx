@@ -85,6 +85,8 @@ const CONCEPT_MODE_INSTRUCTION: Record<ConceptMode, string> = {
   beauty: "Prioritize appointment booking, product recommendations, customer loyalty, service customization, and inventory management archetypes.",
 }
 
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 5000
+
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
@@ -150,23 +152,66 @@ function App() {
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    let cancelled = false
+
+    const withTimeout = <T,>(operation: Promise<T>, label: string): Promise<T> =>
+      Promise.race([
+        operation,
+        new Promise<T>((_, reject) => {
+          setTimeout(() => reject(new Error(`${label} timed out after ${AUTH_BOOTSTRAP_TIMEOUT_MS}ms`)), AUTH_BOOTSTRAP_TIMEOUT_MS)
+        }),
+      ])
+
     const checkAuth = async () => {
-      await authService.initializeMasterAdmin()
-      const currentUser = await authService.getCurrentUser()
-      setUser(currentUser)
-      if (currentUser) {
-        setUserIdForKV(currentUser.id)
-        setHasShownWelcomeThisSession((alreadyShown) => {
-          if (!alreadyShown) {
-            setShowExpandedWelcome(true)
-            return true
+      try {
+        await withTimeout(authService.initializeMasterAdmin(), "Auth bootstrap")
+        const currentUser = await withTimeout(authService.getCurrentUser(), "Current user lookup")
+
+        if (cancelled) {
+          return
+        }
+
+        setUser(currentUser)
+        if (currentUser) {
+          setUserIdForKV(currentUser.id)
+          setHasShownWelcomeThisSession((alreadyShown) => {
+            if (!alreadyShown) {
+              setShowExpandedWelcome(true)
+              return true
+            }
+            return alreadyShown
+          })
+        }
+      } catch (authError) {
+        console.error("Auth bootstrap failed:", authError)
+
+        void logError(
+          "Auth bootstrap failed",
+          authError instanceof Error ? authError : new Error(String(authError)),
+          "authentication",
+          "medium",
+          user?.id,
+          {
+            timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS,
           }
-          return alreadyShown
-        })
+        )
+
+        if (!cancelled) {
+          setUser(null)
+          setUserIdForKV("temp")
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCheckingAuth(false)
+        }
       }
-      setIsCheckingAuth(false)
     }
-    checkAuth()
+
+    void checkAuth()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
