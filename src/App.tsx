@@ -19,6 +19,7 @@ import { Footer } from "@/components/Footer"
 import { PlagiarismChecker } from "@/components/PlagiarismChecker"
 import { IdeaGeneration } from "@/components/IdeaGeneration"
 import { MobileNav } from "@/components/MobileNav"
+import faviconImg from "@/assets/images/favicon.png"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -944,7 +945,7 @@ ${JSON.stringify(candidate)}`
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background flex items-center justify-center">
         <div className="text-center">
-          <Sparkle size={48} weight="duotone" className="text-primary animate-pulse mx-auto mb-4" />
+          <img src={faviconImg} alt="Techpigeon" className="w-12 h-12 mx-auto mb-4 animate-pulse" />
           <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
@@ -1011,7 +1012,7 @@ ${JSON.stringify(candidate)}`
           >
             <div className="flex items-center justify-between mb-4 gap-2">
               <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-                <Sparkle size={32} weight="duotone" className="text-primary shrink-0 md:size-10" />
+                <img src={faviconImg} alt="Techpigeon" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain" />
                 <h1 className="text-xl sm:text-2xl md:text-4xl font-bold tracking-tight text-foreground truncate">
                   <span className="hidden sm:inline">AI-Powered Techpigeon Assistant</span>
                   <span className="sm:hidden">Techpigeon AI</span>
@@ -1028,7 +1029,8 @@ ${JSON.stringify(candidate)}`
             <p className="text-muted-foreground text-sm sm:text-base md:text-lg max-w-2xl leading-relaxed text-center md:text-left">
               Pakistan's leading AI platform for intelligent marketing strategies and business insights
             </p>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-2 text-center md:text-left">
+            <p className="text-xs sm:text-sm text-muted-foreground mt-2 text-center md:text-left flex items-center justify-center md:justify-start gap-1.5">
+              <img src={faviconImg} alt="" className="w-4 h-4 inline-block" />
               Powered by <a href="https://www.techpigeon.org" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Techpigeon</a>
             </p>
           </motion.header>

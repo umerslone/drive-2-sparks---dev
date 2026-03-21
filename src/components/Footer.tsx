@@ -1,5 +1,5 @@
 import { MapPin, Phone, EnvelopeSimple, Globe } from "@phosphor-icons/react"
-import techpigeonLogo from "@/assets/images/techpigeon-logo.png"
+import techpigeonLogo from "@/assets/images/logo.png"
 
 export function Footer() {
   return (
