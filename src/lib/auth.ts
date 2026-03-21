@@ -34,15 +34,28 @@ export const authService = {
       const adminEmail = "admin@techpigeon.org"
       const adminId = "master-admin"
 
+      // Additional admin emails that should always have admin role
+      const ADMIN_EMAILS = new Set(["admin@techpigeon.org", "umerslone@github.user"])
+
       const credentials = await spark.kv.get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY) || {}
       const users = await spark.kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
+      let usersChanged = false
 
-      // If master admin credential already exists, just ensure user record + role is intact
+      // Promote any existing users whose email is in ADMIN_EMAILS
+      for (const user of Object.values(users)) {
+        if (ADMIN_EMAILS.has(user.email?.toLowerCase()) && user.role !== "admin") {
+          user.role = "admin"
+          usersChanged = true
+        }
+      }
+
+      // If master admin credential already exists, save and return
       if (credentials[adminEmail] && users[adminId]) {
         if (users[adminId].role !== "admin") {
           users[adminId].role = "admin"
-          await spark.kv.set(USERS_STORAGE_KEY, users)
+          usersChanged = true
         }
+        if (usersChanged) await spark.kv.set(USERS_STORAGE_KEY, users)
         return
       }
 
@@ -65,10 +78,11 @@ export const authService = {
           createdAt: Date.now(),
           lastLoginAt: Date.now(),
         }
-        await spark.kv.set(USERS_STORAGE_KEY, users)
+        usersChanged = true
       }
 
-      console.info("Master admin ensured: admin@techpigeon.org")
+      if (usersChanged) await spark.kv.set(USERS_STORAGE_KEY, users)
+      console.info("Master admin(s) ensured")
     } catch (e) {
       console.warn("Master admin init skipped:", e)
     }
