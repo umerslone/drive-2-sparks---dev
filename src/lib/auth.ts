@@ -29,34 +29,48 @@ async function simpleHash(text: string): Promise<string> {
 
 export const authService = {
   async initializeMasterAdmin(): Promise<void> {
-    // Seed a default admin account if no users exist (dev/first-run bootstrap)
+    // Ensure master admin exists — merges into existing users, never overwrites
     try {
-      const credentials = await spark.kv.get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY) || {}
-      if (Object.keys(credentials).length > 0) return
-
       const adminEmail = "admin@techpigeon.org"
-      const adminPassword = "admin123"
       const adminId = "master-admin"
-      const passwordHash = await simpleHash(adminPassword)
 
-      const adminUser: UserProfile = {
-        id: adminId,
-        email: adminEmail,
-        fullName: "Admin",
-        role: "admin",
-        subscription: { plan: "pro", status: "active", proCredits: 100, updatedAt: Date.now() },
-        createdAt: Date.now(),
-        lastLoginAt: Date.now(),
+      const credentials = await spark.kv.get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY) || {}
+      const users = await spark.kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
+
+      // If master admin credential already exists, just ensure user record + role is intact
+      if (credentials[adminEmail] && users[adminId]) {
+        if (users[adminId].role !== "admin") {
+          users[adminId].role = "admin"
+          await spark.kv.set(USERS_STORAGE_KEY, users)
+        }
+        return
       }
 
-      credentials[adminEmail] = { email: adminEmail, passwordHash, userId: adminId }
-      const users: Record<string, UserProfile> = { [adminId]: adminUser }
+      // Seed master admin into existing data (merge, not replace)
+      const adminPassword = "admin123"
+      const passwordHash = await simpleHash(adminPassword)
 
-      await spark.kv.set(USER_CREDENTIALS_KEY, credentials)
-      await spark.kv.set(USERS_STORAGE_KEY, users)
-      console.info("Seeded default admin: admin@techpigeon.org / admin123")
+      if (!credentials[adminEmail]) {
+        credentials[adminEmail] = { email: adminEmail, passwordHash, userId: adminId }
+        await spark.kv.set(USER_CREDENTIALS_KEY, credentials)
+      }
+
+      if (!users[adminId]) {
+        users[adminId] = {
+          id: adminId,
+          email: adminEmail,
+          fullName: "Admin",
+          role: "admin",
+          subscription: { plan: "pro", status: "active", proCredits: 100, updatedAt: Date.now() },
+          createdAt: Date.now(),
+          lastLoginAt: Date.now(),
+        }
+        await spark.kv.set(USERS_STORAGE_KEY, users)
+      }
+
+      console.info("Master admin ensured: admin@techpigeon.org")
     } catch (e) {
-      console.warn("Master admin seed skipped:", e)
+      console.warn("Master admin init skipped:", e)
     }
   },
 
