@@ -1,8 +1,8 @@
-# 🚀 AI-Powered TechPigeon Assistant
+# 🚀 AI-Powered Techpigeon Assistant (Drive 2 AI Sparks)
 
-Welcome to the **AI-Powered TechPigeon Assistant** — your intelligent marketing strategy and business insights platform built with cutting-edge AI technology.
+Welcome to the **AI-Powered Techpigeon Assistant** — your intelligent marketing strategy and business insights platform built with cutting-edge AI technology.
 
-## 🎯 About TechPigeon
+## 🎯 About Techpigeon
 
 **TechPigeon** is Pakistan's leading platform for AI Boot Camps, Cloud Computing, and IT Training. This assistant leverages TechPigeon's expertise to help you create powerful marketing strategies and business solutions.
 
