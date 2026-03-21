@@ -763,8 +763,11 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
 
     try {
       const { matches: fingerprintMatches } = await getFingerprintRegistryMatches(text)
+      
+      toast.info("Analyzing document with advanced detection algorithms...")
+      
       const [analysisOutcome, externalOutcome] = await Promise.all([
-        performEnhancedPlagiarismCheck(text, spark),
+        performEnhancedPlagiarismCheck(text, spark, 3),
         performExternalSourceCheck({ text, fileName, fingerprintMatches }),
       ])
 
