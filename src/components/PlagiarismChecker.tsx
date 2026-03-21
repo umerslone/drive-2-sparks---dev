@@ -1144,7 +1144,6 @@ Return ONLY a valid JSON object:
       <UpgradePaywall
         user={user}
         feature="review"
-        onUpgraded={() => window.location.reload()}
       />
     )
   }

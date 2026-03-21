@@ -32,10 +32,9 @@ import { PLAN_CONFIG, requestTrial, requestUpgrade, TRIAL_CREDITS, TRIAL_MAX_SUB
 interface UpgradePaywallProps {
   user: UserProfile
   feature: "review" | "humanize"
-  onUpgraded?: () => void
 }
 
-export function UpgradePaywall({ user, feature, onUpgraded }: UpgradePaywallProps) {
+export function UpgradePaywall({ user, feature }: UpgradePaywallProps) {
   const [isRequesting, setIsRequesting] = useState(false)
   const [upgradeDialog, setUpgradeDialog] = useState<"pro" | "team" | null>(null)
   const [paymentProof, setPaymentProof] = useState("")
