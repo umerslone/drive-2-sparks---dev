@@ -1,4 +1,4 @@
-import { SavedReviewDocument, SavedStrategy } from "@/types"
+import { SavedReviewDocument, SavedStrategy, BusinessCanvasModel, PitchDeck } from "@/types"
 import { format } from "date-fns"
 import { ReviewComputationMeta, ReviewFilters, SectionSummary, enrichReviewResult } from "@/lib/review-engine"
 import { REPORT_BRAND, reportLogoMarkup } from "@/lib/report-branding"
@@ -588,6 +588,167 @@ export async function exportReviewToPDF(
     const link = document.createElement('a')
     link.href = url
     link.download = `${review.name.replace(/[^a-z0-9]/gi, '_')}_Techpigeon_Review.html`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+}
+
+export async function exportBusinessCanvasAsPDF(canvas: BusinessCanvasModel, ideaName: string) {
+  const brand = REPORT_BRAND
+
+  const sections = [
+    { title: "Value Proposition", content: canvas.valueProposition, color: brand.colors.primary },
+    { title: "Key Partners", content: canvas.keyPartners, color: brand.colors.secondary },
+    { title: "Key Activities", content: canvas.keyActivities, color: brand.colors.accent },
+    { title: "Key Resources", content: canvas.keyResources, color: brand.colors.secondary },
+    { title: "Customer Segments", content: canvas.customerSegments, color: brand.colors.primary },
+    { title: "Customer Relationships", content: canvas.customerRelationships, color: brand.colors.accent },
+    { title: "Channels", content: canvas.channels, color: brand.colors.secondary },
+    { title: "Cost Structure", content: canvas.costStructure, color: "#c0392b" },
+    { title: "Revenue Streams", content: canvas.revenueStreams, color: brand.colors.primary },
+  ]
+
+  const sectionsHtml = sections.map(s => `
+    <div class="canvas-section">
+      <div class="section-header" style="background: ${s.color}; color: white; padding: 10px 16px; font-weight: 700; font-size: 15px;">${s.title}</div>
+      <div class="section-body" style="padding: 16px; background: #f8f9fa; border: 1px solid #e0e0e0; border-top: none;">
+        <p style="margin: 0; line-height: 1.7; white-space: pre-wrap;">${s.content}</p>
+      </div>
+    </div>
+  `).join('')
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Business Model Canvas - ${ideaName}</title>
+  <style>
+    body { font-family: Inter, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; color: ${brand.colors.text}; }
+    .header { border-bottom: 3px solid ${brand.colors.accent}; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: ${brand.colors.primary}; font-size: 28px; }
+    .meta { font-size: 13px; color: ${brand.colors.muted}; margin-bottom: 24px; }
+    .canvas-section { margin-bottom: 16px; page-break-inside: avoid; }
+    .footer { margin-top: 50px; border-top: 2px solid ${brand.colors.accent}; padding-top: 20px; text-align: center; font-size: 12px; color: ${brand.colors.muted}; }
+    @media print { body { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${brand.companyName}</div>
+      <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
+    </div>
+    ${reportLogoMarkup(42)}
+  </div>
+  <h1>Business Model Canvas</h1>
+  <div class="meta">
+    <strong>Business Idea:</strong> ${ideaName}<br>
+    <strong>Generated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+  </div>
+  ${sectionsHtml}
+  <div class="footer">
+    <strong>${brand.companyName}</strong><br>
+    ${brand.projectName}<br>
+    ${brand.contactLine}
+  </div>
+</body>
+</html>
+  `
+
+  const blob = new Blob([htmlContent], { type: 'text/html' })
+  const url = URL.createObjectURL(blob)
+  const printWindow = window.open(url, '_blank')
+  if (printWindow) {
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print()
+        URL.revokeObjectURL(url)
+      }, 250)
+    }
+  } else {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Business_Canvas_${ideaName.replace(/[^a-z0-9]/gi, '_')}_Techpigeon.html`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+}
+
+export async function exportPitchDeckAsPDF(pitchDeck: PitchDeck, ideaName: string) {
+  const brand = REPORT_BRAND
+
+  const slidesHtml = pitchDeck.slides.map((slide, index) => `
+    <div class="slide" style="page-break-inside: avoid; margin-bottom: 24px;">
+      <div style="background: ${index % 2 === 0 ? brand.colors.primary : brand.colors.secondary}; color: white; padding: 12px 18px; font-weight: 700; font-size: 16px;">Slide ${slide.slideNumber}: ${slide.title}</div>
+      <div style="padding: 18px; background: #f8f9fa; border: 1px solid #e0e0e0; border-top: none;">
+        <p style="margin: 0 0 12px 0; line-height: 1.7; white-space: pre-wrap;">${slide.content}</p>
+        ${slide.notes ? `<div style="margin-top: 12px; padding: 12px; background: #f0f0f0; border-left: 4px solid ${brand.colors.accent};"><strong>Speaker Notes:</strong><br><span style="font-style: italic; color: #666;">${slide.notes}</span></div>` : ''}
+      </div>
+    </div>
+  `).join('')
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Pitch Deck - ${ideaName}</title>
+  <style>
+    body { font-family: Inter, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; color: ${brand.colors.text}; }
+    .header { border-bottom: 3px solid ${brand.colors.accent}; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: ${brand.colors.primary}; font-size: 28px; }
+    .meta { font-size: 13px; color: ${brand.colors.muted}; margin-bottom: 24px; }
+    .summary { padding: 18px; background: ${brand.colors.panel}; border-left: 4px solid ${brand.colors.accent}; margin-bottom: 24px; }
+    .footer { margin-top: 50px; border-top: 2px solid ${brand.colors.accent}; padding-top: 20px; text-align: center; font-size: 12px; color: ${brand.colors.muted}; }
+    @media print { body { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${brand.companyName}</div>
+      <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
+    </div>
+    ${reportLogoMarkup(42)}
+  </div>
+  <h1>Pitch Deck: ${ideaName}</h1>
+  <div class="meta">
+    <strong>Slides:</strong> ${pitchDeck.slides.length}<br>
+    <strong>Generated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+  </div>
+  <div class="summary">
+    <strong>Executive Summary</strong><br>
+    <p style="margin: 8px 0 0 0; line-height: 1.7; white-space: pre-wrap;">${pitchDeck.executiveSummary}</p>
+  </div>
+  ${slidesHtml}
+  <div class="footer">
+    <strong>${brand.companyName}</strong><br>
+    ${brand.projectName}<br>
+    ${brand.contactLine}
+  </div>
+</body>
+</html>
+  `
+
+  const blob = new Blob([htmlContent], { type: 'text/html' })
+  const url = URL.createObjectURL(blob)
+  const printWindow = window.open(url, '_blank')
+  if (printWindow) {
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print()
+        URL.revokeObjectURL(url)
+      }, 250)
+    }
+  } else {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Pitch_Deck_${ideaName.replace(/[^a-z0-9]/gi, '_')}_Techpigeon.html`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)

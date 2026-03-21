@@ -1,10 +1,11 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileDoc } from "@phosphor-icons/react"
+import { FileDoc, FilePdf, Slideshow } from "@phosphor-icons/react"
 import { motion } from "framer-motion"
 import { BusinessCanvasModel } from "@/types"
 import { toast } from "sonner"
-import { exportBusinessCanvasAsWord } from "@/lib/document-export"
+import { exportBusinessCanvasAsWord, exportBusinessCanvasAsPptxWord } from "@/lib/document-export"
+import { exportBusinessCanvasAsPDF } from "@/lib/pdf-export"
 
 interface BusinessCanvasViewProps {
   canvas: BusinessCanvasModel
@@ -22,6 +23,26 @@ export function BusinessCanvasView({ canvas, ideaName }: BusinessCanvasViewProps
     }
   }
 
+  const handleExportPDF = async () => {
+    try {
+      await exportBusinessCanvasAsPDF(canvas, ideaName)
+      toast.success("Business Canvas PDF export initiated!")
+    } catch (error) {
+      console.error("Error exporting PDF:", error)
+      toast.error("Failed to export PDF. Please try again.")
+    }
+  }
+
+  const handleExportPresentation = async () => {
+    try {
+      await exportBusinessCanvasAsPptxWord(canvas, ideaName)
+      toast.success("Business Canvas exported as Presentation successfully!")
+    } catch (error) {
+      console.error("Error exporting presentation:", error)
+      toast.error("Failed to export presentation. Please try again.")
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -29,12 +50,22 @@ export function BusinessCanvasView({ canvas, ideaName }: BusinessCanvasViewProps
       className="space-y-6 mt-8"
       data-canvas-view
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h3 className="text-2xl font-bold text-foreground">Business Model Canvas</h3>
-        <Button size="sm" variant="default" className="gap-2" onClick={handleExportWord}>
-          <FileDoc weight="bold" size={16} />
-          Export as Word
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="default" className="gap-2" onClick={handleExportPDF}>
+            <FilePdf weight="bold" size={16} />
+            Export PDF
+          </Button>
+          <Button size="sm" variant="default" className="gap-2" onClick={handleExportPresentation}>
+            <Slideshow weight="bold" size={16} />
+            Export PPTX
+          </Button>
+          <Button size="sm" variant="outline" className="gap-2" onClick={handleExportWord}>
+            <FileDoc weight="bold" size={16} />
+            Export Word
+          </Button>
+        </div>
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">

@@ -2,11 +2,12 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { FileDoc, CaretLeft, CaretRight } from "@phosphor-icons/react"
+import { FileDoc, FilePdf, CaretLeft, CaretRight } from "@phosphor-icons/react"
 import { motion, AnimatePresence } from "framer-motion"
 import { PitchDeck } from "@/types"
 import { toast } from "sonner"
 import { exportPitchDeckAsWord } from "@/lib/document-export"
+import { exportPitchDeckAsPDF } from "@/lib/pdf-export"
 
 interface PitchDeckViewProps {
   pitchDeck: PitchDeck
@@ -24,6 +25,16 @@ export function PitchDeckView({ pitchDeck, ideaName }: PitchDeckViewProps) {
     } catch (error) {
       console.error("Error exporting Word:", error)
       toast.error("Failed to export to Word. Please try again.")
+    }
+  }
+
+  const handleExportPDF = async () => {
+    try {
+      await exportPitchDeckAsPDF(pitchDeck, ideaName)
+      toast.success("Pitch Deck PDF export initiated!")
+    } catch (error) {
+      console.error("Error exporting PDF:", error)
+      toast.error("Failed to export PDF. Please try again.")
     }
   }
 
@@ -55,10 +66,16 @@ export function PitchDeckView({ pitchDeck, ideaName }: PitchDeckViewProps) {
             {pitchDeck.slides.length} slides ready for your presentation
           </p>
         </div>
-        <Button size="sm" variant="default" className="gap-2" onClick={handleExportWord}>
-          <FileDoc weight="bold" size={16} />
-          Export as Word
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="default" className="gap-2" onClick={handleExportPDF}>
+            <FilePdf weight="bold" size={16} />
+            Export PDF
+          </Button>
+          <Button size="sm" variant="outline" className="gap-2" onClick={handleExportWord}>
+            <FileDoc weight="bold" size={16} />
+            Export Word
+          </Button>
+        </div>
       </div>
 
       <Card className="p-6 bg-gradient-to-br from-primary/5 to-accent/5 border-primary/20">
