@@ -60,6 +60,7 @@ import { adminService } from "@/lib/admin"
 import { ErrorLogsViewer } from "@/components/ErrorLogsViewer"
 import { InviteManager } from "@/components/InviteManager"
 import { BudgetConfigManager } from "@/components/BudgetConfigManager"
+import { AdminSubscriptionPanel } from "@/components/AdminSubscriptionPanel"
 
 export function AdminDashboard() {
   const [users, setUsers] = useState<UserProfile[]>([])
@@ -493,10 +494,14 @@ export function AdminDashboard() {
         >
           <Tabs defaultValue="users" className="w-full">
             <div className="mb-4 overflow-x-auto pb-1">
-              <TabsList className="grid min-w-[900px] grid-cols-6">
+              <TabsList className="grid min-w-[1050px] grid-cols-7">
                 <TabsTrigger value="users" className="gap-2">
                   <Users size={18} weight="bold" />
                   User Management
+                </TabsTrigger>
+                <TabsTrigger value="subscriptions" className="gap-2">
+                  <CurrencyDollar size={18} weight="bold" />
+                  Subscriptions
                 </TabsTrigger>
                 <TabsTrigger value="budget" className="gap-2">
                   <CurrencyDollar size={18} weight="bold" />
@@ -520,6 +525,14 @@ export function AdminDashboard() {
                 </TabsTrigger>
               </TabsList>
             </div>
+
+            <TabsContent value="subscriptions">
+              <AdminSubscriptionPanel
+                users={users}
+                adminEmail={users.find(u => u.email === "admin")?.email || "admin"}
+                onDataChanged={() => loadData()}
+              />
+            </TabsContent>
 
             <TabsContent value="budget">
               <BudgetConfigManager />
@@ -589,12 +602,12 @@ export function AdminDashboard() {
                                 )}
                               </TableCell>
                               <TableCell>
-                                <Badge variant={user.subscription?.plan === "pro" ? "default" : "secondary"}>
-                                  {user.subscription?.plan === "pro" ? "Pro" : "Basic"}
+                                <Badge variant={user.subscription?.plan === "pro" || user.subscription?.plan === "team" ? "default" : "secondary"} className="capitalize">
+                                  {user.subscription?.plan || "Basic"}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-sm text-muted-foreground">
-                                {user.subscription?.plan === "pro" ? user.subscription.proCredits : "-"}
+                                {user.subscription?.plan === "pro" || user.subscription?.plan === "team" ? user.subscription.proCredits : "-"}
                               </TableCell>
                               <TableCell className="text-sm text-muted-foreground">
                                 {formatDate(user.createdAt)}

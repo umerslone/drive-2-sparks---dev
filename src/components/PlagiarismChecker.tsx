@@ -31,7 +31,7 @@ import { performEnhancedPlagiarismCheck } from "@/lib/enhanced-plagiarism"
 import { getExternalSourceIntegrationSummary, performExternalSourceCheck } from "@/lib/external-source-check"
 import { computeReviewAnalysis, ReviewComputationMeta, ReviewFilters, SectionSummary } from "@/lib/review-engine"
 import { AdvancedDetectionResult } from "@/lib/advanced-detection"
-import { addProCredits, consumeProCredits, consumeReviewCredit, getFeatureEntitlements, upgradeToPlan, upgradeToPro, PLAN_CONFIG } from "@/lib/subscription"
+import { addProCredits, consumeProCredits, consumeReviewCredit, getFeatureEntitlements, requestUpgrade, PLAN_CONFIG } from "@/lib/subscription"
 import { UpgradePaywall } from "@/components/UpgradePaywall"
 import type { SubscriptionPlan } from "@/types"
 import { getCurrentMonthKey, getExportPlanConfig } from "@/lib/strategy-governance"
@@ -1099,24 +1099,20 @@ Return ONLY a valid JSON object:
   }
 
   const handleUpgradeToPro = async () => {
-    const result = await upgradeToPlan(user.id, "pro")
+    const result = await requestUpgrade(user.id, "pro")
     if (result.success) {
-      setSubscriptionPlan("pro")
-      setProCredits(result.credits)
-      toast.success(`Upgraded to Pro. ${result.credits} credits added.`)
+      toast.success("Pro upgrade request submitted! Admin will review and approve your upgrade.")
     } else {
-      toast.error(result.error || "Failed to upgrade to Pro")
+      toast.error(result.error || "Failed to submit upgrade request")
     }
   }
 
   const handleUpgradeToTeam = async () => {
-    const result = await upgradeToPlan(user.id, "team")
+    const result = await requestUpgrade(user.id, "team")
     if (result.success) {
-      setSubscriptionPlan("team")
-      setProCredits(result.credits)
-      toast.success(`Upgraded to Team. ${result.credits} credits added.`)
+      toast.success("Team upgrade request submitted! Admin will review and approve your upgrade.")
     } else {
-      toast.error(result.error || "Failed to upgrade to Team")
+      toast.error(result.error || "Failed to submit upgrade request")
     }
   }
 

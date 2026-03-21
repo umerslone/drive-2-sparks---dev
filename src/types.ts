@@ -63,6 +63,26 @@ export interface TrialInfo {
   exhausted: boolean
 }
 
+export type SubscriptionRequestType = "trial" | "upgrade"
+export type SubscriptionRequestStatus = "pending" | "approved" | "rejected"
+
+export interface SubscriptionRequest {
+  id: string
+  userId: string
+  userEmail: string
+  userName: string
+  type: SubscriptionRequestType
+  targetPlan?: SubscriptionPlan
+  currentPlan: SubscriptionPlan
+  paymentProof?: string
+  message?: string
+  status: SubscriptionRequestStatus
+  adminNote?: string
+  createdAt: number
+  resolvedAt?: number
+  resolvedBy?: string
+}
+
 export interface SubscriptionInfo {
   plan: SubscriptionPlan
   status: SubscriptionStatus

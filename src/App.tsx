@@ -30,7 +30,7 @@ import { authService } from "@/lib/auth"
 import { BRAND_THEME_STORAGE_KEY, DEFAULT_BRAND_THEME, isBrandThemeName, type BrandThemeName } from "@/lib/brand-theme"
 import { logError } from "@/lib/error-logger"
 import { cn } from "@/lib/utils"
-import { getFeatureEntitlements, upgradeToPlan } from "@/lib/subscription"
+import { getFeatureEntitlements, requestUpgrade } from "@/lib/subscription"
 import { exportStrategyAsPDF } from "@/lib/pdf-export"
 import { exportStrategyAsWord } from "@/lib/document-export"
 import { estimateGenerationCostCents, estimatePromptTokens, getCurrentMonthKey, getExportPlanConfig, getStrategyPlanConfig, loadBudgetLimits } from "@/lib/strategy-governance"
@@ -847,26 +847,13 @@ ${JSON.stringify(candidate)}`
   const handleUpgradeToProQuick = async () => {
     if (!user || entitlements?.isPaidPlan) return
 
-    const result = await upgradeToPlan(user.id, "pro")
+    const result = await requestUpgrade(user.id, "pro")
     if (!result.success) {
-      toast.error(result.error || "Failed to upgrade user")
+      toast.error(result.error || "Failed to submit upgrade request")
       return
     }
 
-    setUser((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        subscription: {
-          plan: "pro",
-          status: "active",
-          proCredits: result.credits,
-          updatedAt: Date.now(),
-        },
-      }
-    })
-
-    toast.success(`Upgraded to Pro. ${result.credits} credits added.`)
+    toast.success("Pro upgrade request submitted! Admin will review and approve your upgrade.")
   }
 
   const handleViewStrategy = (strategy: SavedStrategy) => {
