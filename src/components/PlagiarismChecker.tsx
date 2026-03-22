@@ -791,7 +791,10 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
       const [analysisOutcome, externalOutcome] = await Promise.all([
         performEnhancedPlagiarismCheck(text, spark, 3),
         performExternalSourceCheck({ text, fileName, fingerprintMatches }),
-      ])
+      ]).catch((err) => {
+        console.error("Plagiarism analysis failed:", err)
+        throw new Error("Analysis failed. Please try again.")
+      })
 
       // Use enhanced plagiarism detection with advanced algorithms
       const { result: enrichedResult, advancedMetrics: detectionMetrics } = analysisOutcome
@@ -1031,6 +1034,12 @@ export function PlagiarismChecker({ user }: PlagiarismCheckerProps) {
     setIsHumanizing(true)
 
     try {
+      if (typeof spark === "undefined" || typeof spark.llmPrompt === "undefined" || typeof spark.llm !== "function") {
+        toast.error("Spark is not available. Please refresh the page.")
+        setIsHumanizing(false)
+        return
+      }
+
       const prompt = spark.llmPrompt`You are an expert text humanizer. Rewrite the following text to sound more natural, authentic, and human-written while preserving the core meaning and information.
 
 Original text:

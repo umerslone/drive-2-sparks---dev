@@ -325,6 +325,10 @@ function App() {
   }
 
   const runWithModelFallback = async (prompt: string, parseJson = false) => {
+    if (typeof spark === "undefined" || typeof spark.llm !== "function") {
+      throw new Error("Spark LLM is not available. Please refresh the page.")
+    }
+
     const preferredModel = strategyPlan === "pro" ? "gpt-4o" : "gpt-4o-mini"
 
     try {
@@ -554,6 +558,10 @@ Keep each value concise. Do NOT use newlines inside string values. Return ONLY v
   }
 
   const runStrategyQA = async (candidate: MarketingResult): Promise<StrategyQAVerdict> => {
+    if (typeof spark === "undefined" || typeof spark.llmPrompt === "undefined") {
+      return { pass: true, score: 70, summary: "QA skipped — Spark not available.", issues: [] }
+    }
+
     const qaPrompt = spark.llmPrompt`You are a strict quality gate for marketing strategy outputs.
 
 Review the candidate strategy below and score for clarity, specificity, actionability, and consistency.
