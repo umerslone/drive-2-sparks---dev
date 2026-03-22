@@ -167,7 +167,6 @@ export function SavedStrategies({
         strategy={previewStrategy}
         open={showPreview}
         onOpenChange={setShowPreview}
-        onViewFull={previewStrategy ? () => onView(previewStrategy) : undefined}
       />
     </>
   )
