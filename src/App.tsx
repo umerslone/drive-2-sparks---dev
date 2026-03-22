@@ -15,6 +15,7 @@ import { AuthForm } from "@/components/AuthForm"
 import { UserMenu } from "@/components/UserMenu"
 import { Dashboard } from "@/components/Dashboard"
 import { AdminDashboard } from "@/components/AdminDashboard"
+import { LandingPage } from "@/components/LandingPage"
 import { SentinelBrain } from "@/components/SentinelBrain"
 import { WelcomeBanner } from "@/components/WelcomeBanner"
 import { TopNotchBanner } from "@/components/TopNotchBanner"
@@ -41,6 +42,7 @@ import { getFeatureEntitlements, requestUpgrade } from "@/lib/subscription"
 import { exportStrategyAsPDF } from "@/lib/pdf-export"
 import { exportStrategyAsWord } from "@/lib/document-export"
 import { estimateGenerationCostCents, estimatePromptTokens, getCurrentMonthKey, getExportPlanConfig, getStrategyPlanConfig, loadBudgetLimits } from "@/lib/strategy-governance"
+import { adminService } from "@/lib/admin"
 
 interface PromptMemoryItem {
   prompt: string
@@ -153,7 +155,36 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authMode, setAuthMode] = useState<"login" | "signup">("login")
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [showLandingPage, setShowLandingPage] = useState(false)
+  const [adminAllStrategies, setAdminAllStrategies] = useState<SavedStrategy[]>([])
   const resultsRef = useRef<HTMLDivElement>(null)
+
+  // When admin logs in, load all users' strategies for a global view
+  useEffect(() => {
+    if (user?.role !== "admin") {
+      setAdminAllStrategies([])
+      return
+    }
+    let cancelled = false
+    const loadAdminData = async () => {
+      try {
+        const allStrategyGroups = await adminService.getAllStrategies()
+        if (!cancelled) {
+          const merged = allStrategyGroups.flatMap(g => g.strategies.map(s => ({
+            ...s,
+            // tag owner email for admin visibility
+            _ownerEmail: g.user.email,
+            _ownerName: g.user.fullName,
+          })))
+          setAdminAllStrategies(merged as SavedStrategy[])
+        }
+      } catch (e) {
+        console.error("Admin data aggregation failed:", e)
+      }
+    }
+    loadAdminData()
+    return () => { cancelled = true }
+  }, [user?.role, user?.id])
 
   useEffect(() => {
     let cancelled = false
@@ -335,6 +366,7 @@ function App() {
       try {
         const pipelineResult = await sentinelQuery(prompt, {
           module: "strategy",
+          useConsensus: true,
           sparkFallback: async () => {
             if (typeof spark !== "undefined" && typeof spark.llm === "function") {
               const preferredModel = strategyPlan === "pro" ? "gpt-4o" : "gpt-4o-mini"
@@ -1036,6 +1068,14 @@ ${JSON.stringify(candidate)}`
 
   const handleAuthSuccess = (authUser: UserProfile) => {
     setUser(authUser)
+    setUserIdForKV(authUser.id)
+    setHasShownWelcomeThisSession((alreadyShown) => {
+      if (!alreadyShown) {
+        setShowExpandedWelcome(true)
+        return true
+      }
+      return alreadyShown
+    })
   }
 
   const handleLogout = () => {
@@ -1092,59 +1132,24 @@ ${JSON.stringify(candidate)}`
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background">
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(circle at 30% 20%, var(--brand-glow-primary) 0%, transparent 50%), radial-gradient(circle at 70% 80%, var(--brand-glow-secondary) 0%, transparent 50%)",
-          }}
-        />
-        {/* Top navigation bar with Login/Signup */}
-        <header className="relative sticky top-0 z-50 bg-background/80 backdrop-blur-md border-b border-border/50">
-          <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <img src={faviconImg} alt="Sentinel AI Suite" className="w-8 h-8 object-contain" />
-              <span className="font-bold text-lg text-foreground hidden sm:inline">Sentinel AI Suite</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => { setAuthMode("login"); setShowAuthModal(true) }}
-              >
-                <SignIn size={18} weight="bold" />
-                <span className="hidden sm:inline">Login</span>
-              </Button>
-              <Button
-                size="sm"
-                className="gap-1.5 bg-gradient-to-r from-primary to-primary/90"
-                onClick={() => { setAuthMode("signup"); setShowAuthModal(true) }}
-              >
-                <UserPlus size={18} weight="bold" />
-                <span className="hidden sm:inline">Sign Up</span>
-              </Button>
-            </div>
-          </div>
-        </header>
+      <LandingPage
+        onLogin={() => { setAuthMode("login"); setShowAuthModal(true) }}
+        onSignup={() => { setAuthMode("signup"); setShowAuthModal(true) }}
+        onAuthSuccess={handleAuthSuccess}
+      />
+    )
+  }
 
-        <div className="relative max-w-6xl mx-auto px-6 md:px-8 py-12">
-          <EmptyState />
-        </div>
-
-        <Dialog open={showAuthModal} onOpenChange={setShowAuthModal}>
-          <DialogContent className="max-w-md p-0 border-0 bg-transparent shadow-none [&>button]:hidden">
-            <AuthForm
-              onAuthSuccess={(u) => {
-                setShowAuthModal(false)
-                handleAuthSuccess(u)
-              }}
-              initialMode={authMode}
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
+  if (showLandingPage) {
+    return (
+      <LandingPage
+        onLogin={() => {}}
+        onSignup={() => {}}
+        onAuthSuccess={handleAuthSuccess}
+        user={user}
+        onBackToDashboard={() => setShowLandingPage(false)}
+        onNavigate={(tab) => { setActiveTab(tab); setShowLandingPage(false) }}
+      />
     )
   }
 
@@ -1203,13 +1208,16 @@ ${JSON.stringify(candidate)}`
             className="mb-6"
           >
             <div className="flex items-center justify-between mb-4 gap-2">
-              <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+              <button
+                onClick={() => setShowLandingPage(true)}
+                className="flex items-center gap-2 md:gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+              >
                 <img src={faviconImg} alt="Techpigeon" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain" />
                 <h1 className="text-xl sm:text-2xl md:text-4xl font-bold tracking-tight text-foreground truncate">
                   <span className="hidden sm:inline">Sentinel AI Suite</span>
                   <span className="sm:hidden">Sentinel AI</span>
                 </h1>
-              </div>
+              </button>
               <div className="flex items-center gap-2">
                 {entitlements && !entitlements.isPaidPlan && user.role !== "admin" && (
                   <Button
@@ -2154,8 +2162,9 @@ ${JSON.stringify(candidate)}`
 
             <TabsContent value="dashboard" className="space-y-6">
               <Dashboard 
-                strategies={savedStrategies || []} 
+                strategies={user.role === "admin" && adminAllStrategies.length > 0 ? adminAllStrategies : (savedStrategies || [])} 
                 promptMemory={promptMemory || []}
+                isAdmin={user.role === "admin"}
               />
             </TabsContent>
 
@@ -2191,7 +2200,7 @@ ${JSON.stringify(candidate)}`
               )}
               
               <SavedStrategies
-                strategies={savedStrategies || []}
+                strategies={user.role === "admin" && adminAllStrategies.length > 0 ? adminAllStrategies : (savedStrategies || [])}
                 onDelete={handleDeleteStrategy}
                 onView={handleViewStrategy}
                 onCompare={handleToggleCompare}

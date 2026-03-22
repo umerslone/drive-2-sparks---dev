@@ -1,4 +1,5 @@
 import { MarketingResult, UserProfile } from "@/types"
+import { neonKVSet, neonKVGet, neonKVDelete, neonKVKeys } from "@/lib/kv-sync"
 
 type SparkKV = {
   get<T>(key: string): Promise<T | undefined>
@@ -68,6 +69,7 @@ const deleteCached = (key: string) => {
 const buildSafeKV = (baseKV?: SparkKV): Required<SparkKV> => {
   return {
     async get<T>(key: string) {
+      // Tier 1: Spark KV (if running in Spark runtime)
       if (baseKV) {
         try {
           const result = await baseKV.get<T>(key)
@@ -80,11 +82,28 @@ const buildSafeKV = (baseKV?: SparkKV): Required<SparkKV> => {
         }
       }
 
-      return readCached<T>(key)
+      // Tier 2: localStorage cache
+      const cached = readCached<T>(key)
+      if (cached !== undefined) return cached
+
+      // Tier 3: Neon DB (cloud persistence)
+      try {
+        const neonResult = await neonKVGet<T>(key)
+        if (neonResult !== undefined) {
+          writeCached(key, neonResult) // Cache locally for next read
+          return neonResult
+        }
+      } catch {
+        // Non-blocking — Neon may not be configured
+      }
+
+      return undefined
     },
     async set<T>(key: string, value: T) {
+      // Write to local cache immediately (fast)
       writeCached(key, value)
 
+      // Write-through to Spark KV
       if (baseKV) {
         try {
           await baseKV.set(key, value)
@@ -92,6 +111,9 @@ const buildSafeKV = (baseKV?: SparkKV): Required<SparkKV> => {
           console.warn("Spark KV set failed, value cached locally", error)
         }
       }
+
+      // Write-through to Neon DB (non-blocking)
+      neonKVSet(key, value).catch(() => {})
     },
     async delete(key: string) {
       deleteCached(key)
@@ -103,6 +125,9 @@ const buildSafeKV = (baseKV?: SparkKV): Required<SparkKV> => {
           console.warn("Spark KV delete failed, cleared local cache only", error)
         }
       }
+
+      // Delete from Neon (non-blocking)
+      neonKVDelete(key).catch(() => {})
     },
     async keys() {
       const localKeys = Array.from(memoryStore.keys())
@@ -114,6 +139,16 @@ const buildSafeKV = (baseKV?: SparkKV): Required<SparkKV> => {
         } catch (error) {
           console.warn("Spark KV keys failed, returning local keys", error)
         }
+      }
+
+      // Also include Neon keys
+      try {
+        const neonKeys = await neonKVKeys()
+        if (neonKeys.length > 0) {
+          return Array.from(new Set([...localKeys, ...neonKeys]))
+        }
+      } catch {
+        // Non-blocking
       }
 
       return localKeys
@@ -195,6 +230,11 @@ export const initializeSparkShim = () => {
   }
 
   ;(window as unknown as { spark: SparkClient }).spark = safeSpark
+
+  // Mark whether we're running in real Spark runtime (has native user())
+  if (baseSpark.user) {
+    ;(window as unknown as { __SPARK_RUNTIME__: boolean }).__SPARK_RUNTIME__ = true
+  }
 }
 
 export const getSafeKVClient = (): Required<SparkKV> => {

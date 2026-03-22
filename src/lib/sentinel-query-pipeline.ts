@@ -27,6 +27,7 @@ export async function sentinelQuery(
     sector?: string
     skipCache?: boolean
     preferCopilot?: boolean
+    useConsensus?: boolean // Enables multi-model generation and synthesis
     sparkFallback?: () => Promise<string>
   }
 ): Promise<PipelineResult> {
@@ -86,7 +87,86 @@ export async function sentinelQuery(
     }
   }
 
-  // Step 3: Generate — route to preferred provider first
+  // Step 3: Generate
+  
+  if (options?.useConsensus) {
+    if (geminiReady || copilotReady) {
+      try {
+        const augmentedPrompt = brainContextStr
+          ? `Use the following knowledge base context to inform your response. If the context is relevant, incorporate it. If not, rely on your own knowledge.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END KNOWLEDGE BASE ---\n\nUser query: ${queryText}`
+          : queryText
+
+        // Run all available primary models in parallel
+        const generationPromises: Promise<{ provider: string, text: string }>[] = []
+        
+        if (geminiReady) {
+          generationPromises.push(
+            geminiGenerate(augmentedPrompt).then(text => ({ provider: 'gemini', text })).catch(() => ({ provider: 'gemini', text: '' }))
+          )
+        }
+        
+        if (copilotReady) {
+          generationPromises.push(
+            copilotGenerate(augmentedPrompt).then(text => ({ provider: 'copilot', text })).catch(() => ({ provider: 'copilot', text: '' }))
+          )
+        }
+        
+        if (options?.sparkFallback) {
+          generationPromises.push(
+            options.sparkFallback().then(text => ({ provider: 'spark', text })).catch(() => ({ provider: 'spark', text: '' }))
+          )
+        }
+
+        const results = await Promise.all(generationPromises)
+        const validResults = results.filter(r => r.text.length > 0)
+        
+        if (validResults.length > 0) {
+          validResults.forEach(r => providers.push(r.provider as QueryProvider))
+          providers.push("brain" as QueryProvider) // "brain" synthesizer acts as the final judge
+          
+          let synthesizedResponse = validResults[0].text // Fallback if synthesis fails
+          
+          // Synthesize using the best available model (Gemini usually better at synthesis)
+          if (validResults.length > 1) {
+            const synthesisPrompt = `You are the Sentinel Brain Synthesizer. You have received answers from multiple AI models regarding a user's query. Your job is to analyze these responses, extract the best ideas from all of them, resolve any conflicts, and create a single, highly-optimized, natural, and humanized final response.
+
+Original user query: ${queryText}
+
+${validResults.map((r, i) => `--- Model ${i + 1} (${r.provider}) Response ---\n${r.text}`).join('\n\n')}
+
+Create a unified, humanized response that intelligently combines the best of all models.`
+
+            if (geminiReady) {
+               try { synthesizedResponse = await geminiGenerate(synthesisPrompt); providers.push("gemini" as QueryProvider); } 
+               catch { /* fallback to index 0 */ }
+            } else if (copilotReady) {
+               try { synthesizedResponse = await copilotGenerate(synthesisPrompt); providers.push("copilot" as QueryProvider); }
+               catch { /* fallback to index 0 */ }
+            }
+          }
+          
+          const modelTag = "consensus-humanized"
+          
+          if (neonReady) {
+            void safeCacheAndLog(queryText, synthesizedResponse, providers, brainHits, { ...options, model: modelTag })
+          }
+
+          return {
+            response: synthesizedResponse,
+            providers,
+            brainHits,
+            brainContext,
+            cached: false,
+            model: modelTag,
+          }
+        }
+      } catch (err) {
+        console.warn("Consensus generation failed, falling through:", err)
+      }
+    }
+  }
+
+  // route to preferred provider first
   const useCopilotFirst = options?.preferCopilot && copilotReady
 
   // Step 3a-pre: Copilot first if preferred (code/technical queries)
@@ -100,7 +180,7 @@ export async function sentinelQuery(
       providers.push("copilot")
 
       if (neonReady) {
-        void safeCacheAndLog(queryText, response, providers, brainHits, options)
+        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "copilot-gpt-4o" })
       }
 
       return {
@@ -128,7 +208,7 @@ export async function sentinelQuery(
 
       // Cache the generation
       if (neonReady) {
-        void safeCacheAndLog(queryText, response, providers, brainHits, options)
+        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "gemini-2.5-flash" })
       }
 
       return {
@@ -155,7 +235,7 @@ export async function sentinelQuery(
       providers.push("copilot")
 
       if (neonReady) {
-        void safeCacheAndLog(queryText, response, providers, brainHits, options)
+        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "copilot-gpt-4o" })
       }
 
       return {
@@ -178,7 +258,7 @@ export async function sentinelQuery(
       providers.push("spark")
 
       if (neonReady) {
-        void safeCacheAndLog(queryText, response, providers, brainHits, options)
+        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "spark-llm" })
       }
 
       return {
@@ -302,10 +382,17 @@ async function safeCacheAndLog(
       query_text: queryText,
       provider: providers[providers.length - 1],
       response_json: { text: response },
-      model_used: providers.includes("gemini") ? "gemini-2.5-flash" : "spark-llm",
+      model_used: options?.model || (providers.includes("gemini") ? "gemini-2.5-flash" : "spark-llm"),
     })
   } catch {
     // Silent
   }
-  void safeLogQuery(queryText, { text: response }, providers, brainHits, options)
+  
+  // Tag the response JSON with the model so it gets logged in the query logs too
+  const logResponse = { 
+    text: response, 
+    _meta: { model: options?.model || (providers.includes("gemini") ? "gemini-2.5-flash" : "spark-llm") } 
+  }
+  
+  void safeLogQuery(queryText, logResponse, providers, brainHits, options)
 }

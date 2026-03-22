@@ -44,6 +44,69 @@ export interface CachedGeneration {
   expires_at: string
 }
 
+// --- Database Initialization ---
+
+export async function ensureBrainTables(): Promise<void> {
+  const sql = await getNeonClient()
+
+  // Enable pgvector extension (required for embedding columns)
+  await sql`CREATE EXTENSION IF NOT EXISTS vector`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS brain_documents (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      source_url TEXT,
+      source_type TEXT NOT NULL DEFAULT 'manual',
+      status TEXT NOT NULL DEFAULT 'pending',
+      chunks_count INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS sentinel_brain (
+      id SERIAL PRIMARY KEY,
+      content TEXT NOT NULL,
+      embedding vector(768),
+      sector TEXT,
+      metadata JSONB,
+      document_id INTEGER REFERENCES brain_documents(id) ON DELETE CASCADE,
+      chunk_index INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS query_log (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER,
+      query_text TEXT NOT NULL,
+      query_embedding vector(768),
+      module TEXT,
+      response_json JSONB,
+      providers_used TEXT[],
+      brain_hits INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS generation_cache (
+      id SERIAL PRIMARY KEY,
+      query_hash TEXT UNIQUE NOT NULL,
+      query_text TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      response_json JSONB NOT NULL,
+      model_used TEXT,
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '30 days')
+    )
+  `
+}
+
 // --- Brain Documents (source tracking) ---
 
 export async function addBrainDocument(doc: {
@@ -52,7 +115,7 @@ export async function addBrainDocument(doc: {
   source_type: BrainDocument["source_type"]
   created_by?: number
 }): Promise<BrainDocument> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const rows = await sql`
     INSERT INTO brain_documents (title, source_url, source_type, created_by)
     VALUES (${doc.title}, ${doc.source_url ?? null}, ${doc.source_type}, ${doc.created_by ?? null})
@@ -62,7 +125,7 @@ export async function addBrainDocument(doc: {
 }
 
 export async function listBrainDocuments(): Promise<BrainDocument[]> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const rows = await sql`
     SELECT * FROM brain_documents ORDER BY created_at DESC
   `
@@ -74,7 +137,7 @@ export async function updateDocumentStatus(
   status: BrainDocument["status"],
   chunksCount?: number
 ): Promise<void> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   if (chunksCount !== undefined) {
     await sql`
       UPDATE brain_documents SET status = ${status}, chunks_count = ${chunksCount} WHERE id = ${id}
@@ -87,7 +150,7 @@ export async function updateDocumentStatus(
 }
 
 export async function deleteBrainDocument(id: number): Promise<void> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   await sql`DELETE FROM sentinel_brain WHERE document_id = ${id}`
   await sql`DELETE FROM brain_documents WHERE id = ${id}`
 }
@@ -102,7 +165,7 @@ export async function addBrainChunk(chunk: {
   document_id?: number
   chunk_index?: number
 }): Promise<BrainEntry> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const embeddingStr = `[${chunk.embedding.join(",")}]`
   const rows = await sql`
     INSERT INTO sentinel_brain (content, embedding, sector, metadata, document_id, chunk_index)
@@ -124,7 +187,7 @@ export async function searchBrain(
   limit = 5,
   sector?: string
 ): Promise<(BrainEntry & { similarity: number })[]> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const embeddingStr = `[${queryEmbedding.join(",")}]`
 
   if (sector) {
@@ -152,7 +215,7 @@ export async function getBrainStats(): Promise<{
   totalDocuments: number
   sectors: string[]
 }> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const [chunkResult] = await sql`SELECT COUNT(*) as count FROM sentinel_brain` as Record<string, unknown>[]
   const [docResult] = await sql`SELECT COUNT(*) as count FROM brain_documents` as Record<string, unknown>[]
   const sectorRows = await sql`SELECT DISTINCT sector FROM sentinel_brain WHERE sector IS NOT NULL` as Record<string, unknown>[]
@@ -175,7 +238,7 @@ export async function logQuery(entry: {
   providers_used?: string[]
   brain_hits?: number
 }): Promise<void> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const embeddingStr = entry.query_embedding ? `[${entry.query_embedding.join(",")}]` : null
 
   await sql`
@@ -193,7 +256,7 @@ export async function logQuery(entry: {
 }
 
 export async function getRecentQueries(userId?: number, limit = 20): Promise<QueryLogEntry[]> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
 
   if (userId) {
     const rows = await sql`
@@ -221,7 +284,7 @@ function hashQuery(text: string): string {
 }
 
 export async function getCachedGeneration(queryText: string): Promise<CachedGeneration | null> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const qHash = hashQuery(queryText)
 
   const rows = await sql`
@@ -244,7 +307,7 @@ export async function cacheGeneration(entry: {
   response_json: Record<string, unknown>
   model_used?: string
 }): Promise<void> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const qHash = hashQuery(entry.query_text)
 
   await sql`

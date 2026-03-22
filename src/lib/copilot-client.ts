@@ -1,23 +1,13 @@
+import { storeSecret, retrieveSecret, hasSecret } from "@/lib/secret-store"
+
 const COPILOT_TOKEN_KEY = "sentinel-copilot-token"
 
-function getStoredToken(): string | null {
-  try {
-    return localStorage.getItem(COPILOT_TOKEN_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function setCopilotToken(token: string): void {
-  try {
-    localStorage.setItem(COPILOT_TOKEN_KEY, token)
-  } catch {
-    console.warn("Failed to store Copilot token")
-  }
+export async function setCopilotToken(token: string): Promise<void> {
+  await storeSecret(COPILOT_TOKEN_KEY, token)
 }
 
 export function isCopilotConfigured(): boolean {
-  return !!getStoredToken()
+  return hasSecret(COPILOT_TOKEN_KEY)
 }
 
 interface CopilotMessage {
@@ -40,7 +30,7 @@ export async function copilotChat(
   messages: CopilotMessage[],
   options?: { model?: string; temperature?: number; maxTokens?: number }
 ): Promise<{ text: string; model: string }> {
-  const token = getStoredToken()
+  const token = await retrieveSecret(COPILOT_TOKEN_KEY)
   if (!token) {
     throw new Error("Copilot token not configured. Go to Admin → Settings to add it.")
   }

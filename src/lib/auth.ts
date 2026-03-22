@@ -21,7 +21,9 @@ interface PasswordResetCode {
 
 async function simpleHash(text: string): Promise<string> {
   const encoder = new TextEncoder()
-  const data = encoder.encode(text)
+  // Salt the password to prevent rainbow table attacks
+  const salted = `sentinel:${text}:v2`
+  const data = encoder.encode(salted)
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
@@ -179,10 +181,43 @@ export const authService = {
 
   async loginWithGitHub(): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
     try {
-      const githubUser = await spark.user()
-      
+      let githubUser: { id: string; login: string; email?: string; avatarUrl?: string; isOwner?: boolean } | null = null
+
+      // Attempt 1: Spark runtime's native GitHub integration
+      try {
+        const result = await spark.user()
+        if (result && "login" in result && result.login && result.login !== "Local User") {
+          githubUser = result as unknown as typeof githubUser
+        }
+      } catch {
+        // spark.user() is not available or failed
+      }
+
+      // Attempt 2: Codespace dev server endpoint (proxies GITHUB_TOKEN → GitHub API)
+      if (!githubUser) {
+        try {
+          const res = await fetch('/__github-user')
+          if (res.ok) {
+            const data = await res.json() as { id: string; login: string; email?: string; avatar_url?: string }
+            if (data.login) {
+              githubUser = {
+                id: data.id,
+                login: data.login,
+                email: data.email || undefined,
+                avatarUrl: data.avatar_url || undefined,
+              }
+            }
+          }
+        } catch {
+          // Dev endpoint not available (production build or network error)
+        }
+      }
+
       if (!githubUser || !githubUser.login) {
-        return { success: false, error: "GitHub authentication failed" }
+        return { 
+          success: false, 
+          error: "GitHub authentication failed. Please try again."
+        }
       }
 
       const users = await spark.kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
@@ -351,7 +386,7 @@ export const authService = {
 
       await spark.kv.set(RESET_CODES_KEY, resetCodes)
 
-      console.log(`Password reset code for ${email}: ${resetCode} (expires in 15 minutes)`)
+      // Reset code stored securely — do not log to console
 
       return { success: true }
     } catch (error) {

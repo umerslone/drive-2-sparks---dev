@@ -1,34 +1,23 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { storeSecret, retrieveSecret, hasSecret } from "@/lib/secret-store"
 
 let geminiInstance: GoogleGenerativeAI | null = null
 
 const GEMINI_KEY_STORAGE = "sentinel-gemini-api-key"
 
-function getStoredKey(): string | null {
-  try {
-    return localStorage.getItem(GEMINI_KEY_STORAGE)
-  } catch {
-    return null
-  }
-}
-
-export function setGeminiApiKey(key: string): void {
-  try {
-    localStorage.setItem(GEMINI_KEY_STORAGE, key)
-    geminiInstance = new GoogleGenerativeAI(key)
-  } catch {
-    console.warn("Failed to store Gemini API key")
-  }
+export async function setGeminiApiKey(key: string): Promise<void> {
+  await storeSecret(GEMINI_KEY_STORAGE, key)
+  geminiInstance = new GoogleGenerativeAI(key)
 }
 
 export function isGeminiConfigured(): boolean {
-  return !!getStoredKey()
+  return hasSecret(GEMINI_KEY_STORAGE)
 }
 
-function getGemini(): GoogleGenerativeAI {
+async function getGemini(): Promise<GoogleGenerativeAI> {
   if (geminiInstance) return geminiInstance
 
-  const key = getStoredKey()
+  const key = await retrieveSecret(GEMINI_KEY_STORAGE)
   if (!key) {
     throw new Error("Gemini API key not configured. Go to Admin → Settings to add it.")
   }
@@ -41,7 +30,7 @@ export async function geminiGenerate(
   prompt: string,
   options?: { model?: string; parseJson?: boolean }
 ): Promise<string> {
-  const ai = getGemini()
+  const ai = await getGemini()
   const model = ai.getGenerativeModel({ model: options?.model ?? "gemini-2.5-flash" })
 
   const result = await model.generateContent(prompt)
@@ -51,7 +40,7 @@ export async function geminiGenerate(
 }
 
 export async function geminiEmbed(text: string): Promise<number[]> {
-  const ai = getGemini()
+  const ai = await getGemini()
   const model = ai.getGenerativeModel({ model: "text-embedding-004" })
 
   const result = await model.embedContent(text)

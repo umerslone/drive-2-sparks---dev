@@ -279,6 +279,7 @@ CRITICAL: Return ONLY valid JSON with no markdown, no code blocks, no explanator
           const res = await sentinelQuery(strPrompt, {
             module: "idea-generation",
             userId: user?.id ? parseInt(user.id) || undefined : undefined,
+            useConsensus: true,
             sparkFallback: async () => {
               if (typeof spark !== "undefined" && typeof spark.llm === "function") {
                 return (await spark.llm(strPrompt, "gpt-4o", false)) as string
@@ -365,6 +366,7 @@ CRITICAL: Return ONLY valid JSON with no markdown formatting.`
           const res = await sentinelQuery(strPrompt, {
             module: "idea-generation-canvas",
             userId: user?.id ? parseInt(user.id) || undefined : undefined,
+            useConsensus: true,
             sparkFallback: async () => {
               if (typeof spark !== "undefined" && typeof spark.llm === "function") {
                 return (await spark.llm(strPrompt, "gpt-4o", false)) as string
@@ -464,6 +466,7 @@ CRITICAL: Return ONLY valid JSON with no markdown.`
           const res = await sentinelQuery(strPrompt, {
             module: "idea-generation-pitchdeck",
             userId: user?.id ? parseInt(user.id) || undefined : undefined,
+            useConsensus: true,
             sparkFallback: async () => {
               if (typeof spark !== "undefined" && typeof spark.llm === "function") {
                 return (await spark.llm(strPrompt, "gpt-4o", false)) as string

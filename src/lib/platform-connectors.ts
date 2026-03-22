@@ -19,7 +19,7 @@ export interface PlatformConnector {
 
 export async function ensureConnectorsTable(): Promise<void> {
   if (!isNeonConfigured()) return
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   await sql`
     CREATE TABLE IF NOT EXISTS platform_connectors (
       id SERIAL PRIMARY KEY,
@@ -34,7 +34,7 @@ export async function ensureConnectorsTable(): Promise<void> {
       sector TEXT,
       health_status TEXT NOT NULL DEFAULT 'unknown',
       last_health_check TIMESTAMPTZ,
-      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_by INTEGER,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
@@ -51,7 +51,7 @@ export async function addConnector(connector: {
   sector?: string
   created_by?: number
 }): Promise<PlatformConnector> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const rows = await sql`
     INSERT INTO platform_connectors (name, platform_type, base_url, auth_type, auth_config, headers, description, sector, created_by)
     VALUES (
@@ -71,7 +71,7 @@ export async function addConnector(connector: {
 }
 
 export async function listConnectors(): Promise<PlatformConnector[]> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const rows = await sql`SELECT * FROM platform_connectors ORDER BY created_at DESC`
   return (rows as Record<string, unknown>[]).map(parseConnectorRow)
 }
@@ -80,7 +80,7 @@ export async function updateConnector(
   id: number,
   updates: Partial<Pick<PlatformConnector, "name" | "base_url" | "auth_type" | "auth_config" | "headers" | "enabled" | "description" | "sector">>
 ): Promise<void> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   const setClauses: string[] = []
 
   if (updates.name !== undefined) setClauses.push("name")
@@ -102,7 +102,7 @@ export async function updateConnector(
 }
 
 export async function deleteConnector(id: number): Promise<void> {
-  const sql = getNeonClient()
+  const sql = await getNeonClient()
   await sql`DELETE FROM platform_connectors WHERE id = ${id}`
 }
 
@@ -130,7 +130,7 @@ export async function testConnectorHealth(connector: PlatformConnector): Promise
     const latencyMs = Math.round(performance.now() - start)
 
     if (isNeonConfigured()) {
-      const sql = getNeonClient()
+      const sql = await getNeonClient()
       const status = res.ok ? "healthy" : "degraded"
       await sql`UPDATE platform_connectors SET health_status = ${status}, last_health_check = now() WHERE id = ${connector.id}`
     }
@@ -140,7 +140,7 @@ export async function testConnectorHealth(connector: PlatformConnector): Promise
     const latencyMs = Math.round(performance.now() - start)
 
     if (isNeonConfigured()) {
-      const sql = getNeonClient()
+      const sql = await getNeonClient()
       await sql`UPDATE platform_connectors SET health_status = 'down', last_health_check = now() WHERE id = ${connector.id}`
     }
 
@@ -180,6 +180,11 @@ export async function callConnector(
     body: options?.body ? JSON.stringify(options.body) : undefined,
     signal: AbortSignal.timeout(30000),
   })
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "Unknown error")
+    throw new Error(`Connector request failed (${res.status}): ${errText}`)
+  }
 
   const data = await res.json()
   return { data, status: res.status }

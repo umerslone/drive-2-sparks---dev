@@ -23,6 +23,7 @@ interface DashboardProps {
     lastUsedAt: number
   }>
   onRefresh?: () => void
+  isAdmin?: boolean
 }
 
 interface ConceptModeStats {
@@ -53,7 +54,7 @@ const CONCEPT_MODE_COLORS: Record<string, string> = {
   ops: "bg-slate-500/20 border-slate-500/40 text-slate-700",
 }
 
-export function Dashboard({ strategies, promptMemory, onRefresh }: DashboardProps) {
+export function Dashboard({ strategies, promptMemory, onRefresh, isAdmin }: DashboardProps) {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<number>(Date.now())
 
@@ -154,10 +155,17 @@ export function Dashboard({ strategies, promptMemory, onRefresh }: DashboardProp
         transition={{ duration: 0.5 }}
       >
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <ChartBar size={28} weight="duotone" className="text-primary" />
-            Your Dashboard
-          </h2>
+          <div>
+            <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <ChartBar size={28} weight="duotone" className="text-primary" />
+              {isAdmin ? "Global Dashboard" : "Your Dashboard"}
+            </h2>
+            {isAdmin && (
+              <p className="text-xs text-muted-foreground mt-1 ml-10">
+                Showing aggregated data from all platform users
+              </p>
+            )}
+          </div>
           <Button
             onClick={handleRefresh}
             disabled={isRefreshing}

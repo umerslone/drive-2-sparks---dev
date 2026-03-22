@@ -57,12 +57,22 @@ import { toast } from "sonner"
 import { setNeonDbUrl, isNeonConfigured, testConnection } from "@/lib/neon-client"
 import { setGeminiApiKey, isGeminiConfigured, testGeminiConnection } from "@/lib/gemini-client"
 import { setCopilotToken, isCopilotConfigured, testCopilotConnection } from "@/lib/copilot-client"
+import { hasSecret, retrieveSecret, maskSecret } from "@/lib/secret-store"
+import {
+  pushLocalToNeon,
+  pullNeonToLocal,
+  syncBidirectional,
+  getSyncStatus,
+  ensureKVTable,
+} from "@/lib/kv-sync"
 import {
   listBrainDocuments,
   addBrainDocument,
   deleteBrainDocument,
   getBrainStats,
   getRecentQueries,
+  updateDocumentStatus,
+  ensureBrainTables,
   type BrainDocument,
   type QueryLogEntry,
 } from "@/lib/sentinel-brain"
@@ -78,40 +88,72 @@ import {
 
 // ─── Settings Sub-Tab ────────────────────────────────────────────────
 function SettingsPanel() {
+  // Never store raw secrets in React state for display.
+  // Only hold user-typed NEW values; show masked previews for existing secrets.
   const [neonUrl, setNeonUrl] = useState("")
   const [geminiKey, setGeminiKey] = useState("")
   const [copilotToken, setCopilotTokenVal] = useState("")
   const [testing, setTesting] = useState<string | null>(null)
 
+  // Masked previews loaded on mount
+  const [neonMask, setNeonMask] = useState("")
+  const [geminiMask, setGeminiMask] = useState("")
+  const [copilotMask, setCopilotMask] = useState("")
+
+  useEffect(() => {
+    // Load masked previews only — never raw values
+    async function loadMasks() {
+      const [n, g, c] = await Promise.all([
+        retrieveSecret("sentinel-neon-db-url"),
+        retrieveSecret("sentinel-gemini-api-key"),
+        retrieveSecret("sentinel-copilot-token"),
+      ])
+      setNeonMask(maskSecret(n))
+      setGeminiMask(maskSecret(g))
+      setCopilotMask(maskSecret(c))
+    }
+    loadMasks()
+  }, [])
+
   const handleTestNeon = async () => {
     if (!neonUrl.trim()) { toast.error("Enter Neon DB URL first"); return }
     setTesting("neon")
-    setNeonDbUrl(neonUrl.trim())
+    await setNeonDbUrl(neonUrl.trim())
     const result = await testConnection()
     if (result.ok) {
       toast.success("Neon connection successful")
-      await ensureConnectorsTable().catch(() => {})
+      await Promise.all([
+        ensureConnectorsTable(),
+        ensureBrainTables(),
+        ensureKVTable(),
+      ]).catch(() => {})
     } else {
       toast.error(`Neon connection failed: ${result.error}`)
     }
+    setNeonMask(maskSecret(neonUrl.trim()))
+    setNeonUrl("")
     setTesting(null)
   }
 
   const handleTestGemini = async () => {
     if (!geminiKey.trim()) { toast.error("Enter Gemini API key first"); return }
     setTesting("gemini")
-    setGeminiApiKey(geminiKey.trim())
+    await setGeminiApiKey(geminiKey.trim())
     const result = await testGeminiConnection()
     toast[result.ok ? "success" : "error"](result.ok ? "Gemini connection successful" : `Gemini failed: ${result.error}`)
+    setGeminiMask(maskSecret(geminiKey.trim()))
+    setGeminiKey("")
     setTesting(null)
   }
 
   const handleTestCopilot = async () => {
     if (!copilotToken.trim()) { toast.error("Enter Copilot token first"); return }
     setTesting("copilot")
-    setCopilotToken(copilotToken.trim())
+    await setCopilotToken(copilotToken.trim())
     const result = await testCopilotConnection()
     toast[result.ok ? "success" : "error"](result.ok ? "Copilot connection successful" : `Copilot failed: ${result.error}`)
+    setCopilotMask(maskSecret(copilotToken.trim()))
+    setCopilotTokenVal("")
     setTesting(null)
   }
 
@@ -129,10 +171,11 @@ function SettingsPanel() {
             <Badge variant={isNeonConfigured() ? "default" : "secondary"}>
               {isNeonConfigured() ? "Connected" : "Not configured"}
             </Badge>
+            {neonMask && <span className="text-xs text-muted-foreground font-mono">{neonMask}</span>}
           </div>
           <Input
             type="password"
-            placeholder="postgresql://user:pass@host/sentinel-prod?sslmode=require"
+            placeholder={neonMask ? "Enter new URL to replace existing" : "postgresql://user:pass@host/db?sslmode=require"}
             value={neonUrl}
             onChange={(e) => setNeonUrl(e.target.value)}
           />
@@ -155,10 +198,11 @@ function SettingsPanel() {
             <Badge variant={isGeminiConfigured() ? "default" : "secondary"}>
               {isGeminiConfigured() ? "Connected" : "Not configured"}
             </Badge>
+            {geminiMask && <span className="text-xs text-muted-foreground font-mono">{geminiMask}</span>}
           </div>
           <Input
             type="password"
-            placeholder="AIzaSy..."
+            placeholder={geminiMask ? "Enter new key to replace existing" : "AIzaSy..."}
             value={geminiKey}
             onChange={(e) => setGeminiKey(e.target.value)}
           />
@@ -181,10 +225,11 @@ function SettingsPanel() {
             <Badge variant={isCopilotConfigured() ? "default" : "secondary"}>
               {isCopilotConfigured() ? "Connected" : "Not configured"}
             </Badge>
+            {copilotMask && <span className="text-xs text-muted-foreground font-mono">{copilotMask}</span>}
           </div>
           <Input
             type="password"
-            placeholder="ghp_..."
+            placeholder={copilotMask ? "Enter new token to replace existing" : "ghp_..."}
             value={copilotToken}
             onChange={(e) => setCopilotTokenVal(e.target.value)}
           />
@@ -194,7 +239,151 @@ function SettingsPanel() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ─── Data Sync Panel ──────────────────────────────────────── */}
+      <DataSyncPanel />
     </div>
+  )
+}
+
+// ─── Data Sync Sub-Component ─────────────────────────────────────────
+function DataSyncPanel() {
+  const [syncing, setSyncing] = useState<string | null>(null)
+  const [status, setStatus] = useState<{
+    localKeyCount: number
+    neonKeyCount: number
+    lastSync: string | null
+    neonConfigured: boolean
+  } | null>(null)
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await getSyncStatus()
+      setStatus(s)
+    } catch {
+      // Non-critical
+    }
+  }, [])
+
+  useEffect(() => { loadStatus() }, [loadStatus])
+
+  const handlePush = async () => {
+    setSyncing("push")
+    try {
+      await ensureKVTable()
+      const result = await pushLocalToNeon()
+      toast.success(`Pushed ${result.pushed} keys to Neon${result.errors ? ` (${result.errors} errors)` : ""}`)
+      await loadStatus()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Push failed")
+    }
+    setSyncing(null)
+  }
+
+  const handlePull = async () => {
+    setSyncing("pull")
+    try {
+      await ensureKVTable()
+      const result = await pullNeonToLocal()
+      toast.success(`Pulled ${result.pulled} keys from Neon${result.errors ? ` (${result.errors} errors)` : ""}`)
+      await loadStatus()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Pull failed")
+    }
+    setSyncing(null)
+  }
+
+  const handleSync = async () => {
+    setSyncing("sync")
+    try {
+      await ensureKVTable()
+      const result = await syncBidirectional()
+      toast.success(`Synced: ${result.pushedToNeon} pushed, ${result.pulledToLocal} pulled${result.errors ? ` (${result.errors} errors)` : ""}`)
+      await loadStatus()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Sync failed")
+    }
+    setSyncing(null)
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <ArrowsClockwise size={20} weight="duotone" className="text-emerald-500" />
+          Data Sync — LocalStorage ↔ Neon DB
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Sync your app data between this browser's localStorage and Neon DB.
+          Once synced, your data persists across browsers and devices.
+        </p>
+
+        {/* Status row */}
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="p-2 rounded-lg bg-muted/50">
+            <div className="text-lg font-bold">{status?.localKeyCount ?? "—"}</div>
+            <div className="text-[10px] text-muted-foreground">Local Keys</div>
+          </div>
+          <div className="p-2 rounded-lg bg-muted/50">
+            <div className="text-lg font-bold">{status?.neonKeyCount ?? "—"}</div>
+            <div className="text-[10px] text-muted-foreground">Neon Keys</div>
+          </div>
+          <div className="p-2 rounded-lg bg-muted/50">
+            <div className="text-xs font-medium truncate">{status?.lastSync ? new Date(status.lastSync).toLocaleString() : "Never"}</div>
+            <div className="text-[10px] text-muted-foreground">Last Sync</div>
+          </div>
+        </div>
+
+        {!status?.neonConfigured && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 text-xs">
+            <WarningCircle size={16} weight="fill" />
+            Configure Neon DB connection above before syncing.
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={handlePush}
+            disabled={!!syncing || !status?.neonConfigured}
+            size="sm"
+            variant="outline"
+            className="gap-2"
+          >
+            <CloudArrowUp size={16} weight="bold" />
+            {syncing === "push" ? "Pushing..." : "Push Local → Neon"}
+          </Button>
+          <Button
+            onClick={handlePull}
+            disabled={!!syncing || !status?.neonConfigured}
+            size="sm"
+            variant="outline"
+            className="gap-2"
+          >
+            <Database size={16} weight="bold" />
+            {syncing === "pull" ? "Pulling..." : "Pull Neon → Local"}
+          </Button>
+          <Button
+            onClick={handleSync}
+            disabled={!!syncing || !status?.neonConfigured}
+            size="sm"
+            className="gap-2"
+          >
+            <ArrowsClockwise size={16} weight="bold" className={syncing === "sync" ? "animate-spin" : ""} />
+            {syncing === "sync" ? "Syncing..." : "Full Bi-directional Sync"}
+          </Button>
+        </div>
+
+        <p className="text-[10px] text-muted-foreground">
+          <strong>Push</strong> = local wins (upload).{" "}
+          <strong>Pull</strong> = cloud wins (download).{" "}
+          <strong>Sync</strong> = merge both (Neon wins conflicts).{" "}
+          Live writes auto-sync to Neon when configured.
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -499,28 +688,66 @@ function KnowledgeBasePanel() {
 
   const handleIngest = async () => {
     if (!docTitle.trim()) { toast.error("Title is required"); return }
-    if (!docContent.trim()) { toast.error("Content is required for ingestion"); return }
+    if (docType !== "github_repo" && !docContent.trim()) { 
+      toast.error("Content is required for ingestion (unless providing a GitHub URL)")
+      return 
+    }
+    if (docType === "github_repo" && !docUrl.trim() && !docContent.trim()) {
+      toast.error("Please provide a GitHub URL or content manually")
+      return
+    }
     if (!isGeminiConfigured()) { toast.error("Configure Gemini API key in Settings first (needed for embeddings)"); return }
 
     setIngesting(true)
+    let finalContent = docContent
+    let docId: number | null = null
+
     try {
+      if (docType === "github_repo" && docUrl.trim() && !finalContent.trim()) {
+        toast.info("Fetching repository README...")
+        const match = docUrl.match(/github\.com\/([^/]+)\/([^/]+)/)
+        if (match) {
+          const owner = match[1]
+          const repo = match[2].replace(/\.git$/, '')
+          const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/readme`)
+          if (res.ok) {
+            const data = await res.json()
+            if (data.content) {
+              finalContent = atob(data.content)
+            }
+          }
+        }
+        if (!finalContent.trim()) {
+          throw new Error("Could not automatically fetch repository content. Please paste it manually.")
+        }
+      }
+
       const doc = await addBrainDocument({
         title: docTitle.trim(),
         source_url: docUrl.trim() || undefined,
         source_type: docType,
       })
+      docId = doc.id
 
-      const chunksIndexed = await ingestTextTooBrain(docContent, {
+      await updateDocumentStatus(doc.id, "processing")
+
+      const chunksIndexed = await ingestTextTooBrain(finalContent, {
         documentId: doc.id,
         sector: docSector.trim() || undefined,
         metadata: { title: docTitle.trim(), source_url: docUrl.trim() || null },
       })
+
+      await updateDocumentStatus(doc.id, "indexed", chunksIndexed)
 
       toast.success(`Ingested "${docTitle}" — ${chunksIndexed} chunks indexed`)
       setShowAddForm(false)
       setDocTitle(""); setDocUrl(""); setDocContent(""); setDocSector("")
       await loadData()
     } catch (err) {
+      if (docId) {
+        await updateDocumentStatus(docId, "failed").catch(console.error)
+        await loadData()
+      }
       toast.error("Ingestion failed: " + (err instanceof Error ? err.message : "Unknown error"))
     } finally {
       setIngesting(false)
@@ -707,7 +934,7 @@ function KnowledgeBasePanel() {
                         <Icon size={18} weight="duotone" className="text-primary shrink-0" />
                         <div className="min-w-0">
                           <span className="font-medium block truncate">{doc.title}</span>
-                          {doc.source_url && (
+                          {doc.source_url && /^https?:\/\//i.test(doc.source_url) && (
                             <a href={doc.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate block">
                               {doc.source_url}
                             </a>
@@ -796,12 +1023,15 @@ function QueryLogsPanel() {
                 <TableHead>Query</TableHead>
                 <TableHead>Module</TableHead>
                 <TableHead>Providers</TableHead>
+                <TableHead>Model</TableHead>
                 <TableHead>Brain Hits</TableHead>
                 <TableHead>Time</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map((log) => (
+              {logs.map((log) => {
+                const meta = log.response_json?._meta as { model?: string } | undefined
+                return (
                 <TableRow key={log.id}>
                   <TableCell className="max-w-[300px]">
                     <p className="text-sm truncate">{log.query_text}</p>
@@ -816,12 +1046,15 @@ function QueryLogsPanel() {
                       ))}
                     </div>
                   </TableCell>
+                  <TableCell>
+                    {meta?.model ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{meta.model}</span> : <span className="text-xs text-muted-foreground">-</span>}
+                  </TableCell>
                   <TableCell>{log.brain_hits}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {new Date(log.created_at).toLocaleString()}
                   </TableCell>
                 </TableRow>
-              ))}
+              )})}
             </TableBody>
           </Table>
         </div>
