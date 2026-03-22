@@ -6,15 +6,15 @@ import { ChatsCircle, Palette, Target, Code, Desktop, Database, DeviceMobile, Li
 
 
   if (text.leng
-}
+  onOpenChange: (open: boolean) => void
 export function StrategyPreview(
 
 }
 
     },
       title: "Visual Strategy",
-      icon: <Palette size={18} weight="duoton
- 
+      icon: <Palette size={18} weight="du
+}
 
 export function StrategyPreview({ open, onOpenChange, strategy, onViewFull }: StrategyPreviewProps) {
   if (!strategy) return null
@@ -34,33 +34,33 @@ export function StrategyPreview({ open, onOpenChange, strategy, onViewFull }: St
       title: "Target Audience",
       content: strategy.result.targetAudience,
       icon: <Target size={18} weight="duotone" className="text-primary" />
-    },
-    {
+  ]
+  ret
       title: "Application Workflow",
       content: strategy.result.applicationWorkflow,
       icon: <Code size={18} weight="duotone" className="text-primary" />
-    },
+
     {
       title: "UI Workflow",
       content: strategy.result.uiWorkflow,
       icon: <Desktop size={18} weight="duotone" className="text-primary" />
     },
     {
-
+    </Dialog>
       content: strategy.result.databaseWorkflow,
-            <div key={index} className="space-y-2">
+
     },
-     
+
       title: "Mobile Workflow",
       content: strategy.result.mobileWorkflow,
       icon: <DeviceMobile size={18} weight="duotone" className="text-primary" />
-      
+
     {
 
       content: strategy.result.implementationChecklist,
       icon: <ListChecks size={18} weight="duotone" className="text-primary" />
     }
-   
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -87,12 +87,12 @@ export function StrategyPreview({ open, onOpenChange, strategy, onViewFull }: St
 
 
 
-          <div className="mt-6 flex justify-end">
 
-              View Full Strategy
-            </Button>
-          </div>
-        )}
+
+
+
+
+
       </DialogContent>
 
   )
