@@ -2,10 +2,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ChatsCircle, Palette, Target, Code, Desktop, Database, DeviceMobile, ListChecks } from "@phosphor-icons/react"
+import { SavedStrategy } from "@/types"
 
-
-  strategy: SavedStrategy | null
-}
+interface StrategyPreviewProps {
+  open: boolean
   onOpenChange: (open: boolean) => void
   strategy: SavedStrategy | null
   onViewFull?: () => void
@@ -16,89 +16,84 @@ function truncateText(text: string, maxLength: number): string {
   return text.substring(0, maxLength) + "..."
 }
 
+export function StrategyPreview({ open, onOpenChange, strategy, onViewFull }: StrategyPreviewProps) {
+  if (!strategy) return null
+
+  const sections = [
+    {
+      title: "Marketing Copy",
+      content: strategy.result.marketingCopy,
       icon: <ChatsCircle size={18} weight="duotone" className="text-primary" />
-    { 
-
     },
-      
-      icon: <Target size={18} w
-    { 
+    {
+      title: "Visual Strategy",
+      content: strategy.result.visualStrategy,
+      icon: <Palette size={18} weight="duotone" className="text-primary" />
+    },
+    {
+      title: "Target Audience",
+      content: strategy.result.targetAudience,
+      icon: <Target size={18} weight="duotone" className="text-primary" />
+    },
+    {
+      title: "Application Workflow",
       content: strategy.result.applicationWorkflow,
+      icon: <Code size={18} weight="duotone" className="text-primary" />
     },
-      
-      icon: <Desktop size={18} w
-    { 
+    {
+      title: "UI Workflow",
+      content: strategy.result.uiWorkflow,
+      icon: <Desktop size={18} weight="duotone" className="text-primary" />
+    },
+    {
+      title: "Database Workflow",
       content: strategy.result.databaseWorkflow,
+      icon: <Database size={18} weight="duotone" className="text-primary" />
     },
-      
-      icon: <DeviceMobile size={
-    { 
+    {
+      title: "Mobile Workflow",
+      content: strategy.result.mobileWorkflow,
+      icon: <DeviceMobile size={18} weight="duotone" className="text-primary" />
+    },
+    {
+      title: "Implementation Checklist",
       content: strategy.result.implementationChecklist,
-    },
+      icon: <ListChecks size={18} weight="duotone" className="text-primary" />
+    }
+  ]
 
-    <Dialog open={open} onOpenChange=
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
+          <DialogTitle className="text-xl font-bold">
             {strategy.name}
-      
-      
-            <div key={index}
-              <div className="space-y-2">
-                  {section.icon}
-      
-      
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 mt-4">
+          {sections.map((section, index) => (
+            <div key={index} className="space-y-2">
+              <div className="flex items-center gap-2">
+                {section.icon}
+                <h3 className="font-semibold text-sm">{section.title}</h3>
               </div>
+              <p className="text-sm text-muted-foreground">
+                {truncateText(section.content || "", 200)}
+              </p>
+              {index < sections.length - 1 && <Separator />}
+            </div>
           ))}
-
-      
-      
-            <Button onClick={onV
-            </Button>
         </div>
-    </
+
+        {onViewFull && (
+          <div className="mt-6 flex justify-end">
+            <Button onClick={onViewFull}>
+              View Full Strategy
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
