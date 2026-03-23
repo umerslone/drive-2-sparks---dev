@@ -22,6 +22,7 @@ import { sentinelQuery } from "@/lib/sentinel-query-pipeline"
 import { consumeProCredits, consumeReviewCredit, getFeatureEntitlements } from "@/lib/subscription"
 import { isNeonConfigured } from "@/lib/neon-client"
 import { isGeminiConfigured } from "@/lib/gemini-client"
+import { isCopilotConfigured } from "@/lib/copilot-client"
 import { logQuery } from "@/lib/sentinel-brain"
 import { UserProfile } from "@/types"
 
@@ -299,6 +300,8 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
   const currentAction = NGO_ACTIONS.find((a) => a.id === activeAction) ?? NGO_ACTIONS[0]
   const neonReady = isNeonConfigured()
   const geminiReady = isGeminiConfigured()
+  const copilotReady = isCopilotConfigured()
+  const sparkReady = typeof spark !== "undefined" && typeof spark.llm === "function"
 
   const handleActionChange = (actionId: string) => {
     setActiveAction(actionId)
@@ -340,6 +343,13 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
         module: "ngo_module",
         userId: typeof user.id === "number" ? user.id : undefined,
         skipCache: false,
+        useConsensus: true,
+        sparkFallback: async () => {
+          if (typeof spark !== "undefined" && typeof spark.llm === "function") {
+            return await spark.llm(prompt, "gpt-4o", false) as string
+          }
+          throw new Error("Spark fallback unavailable")
+        },
       })
 
       const parsed = parseNGOResult(res.response)
@@ -411,11 +421,21 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
             Sentinel Social — AI-powered tools for NGOs, nonprofits & social sector organizations in Pakistan & AJK
           </p>
         </div>
-        {(geminiReady || neonReady) && (
-          <div className="ml-auto flex gap-2">
+        {(geminiReady || copilotReady || sparkReady || neonReady) && (
+          <div className="ml-auto flex flex-wrap gap-2">
             {geminiReady && (
               <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-400/40 bg-emerald-500/5">
                 Gemini 2.5 Flash
+              </Badge>
+            )}
+            {copilotReady && (
+              <Badge variant="outline" className="text-xs text-violet-600 border-violet-400/40 bg-violet-500/5">
+                Copilot Bridge
+              </Badge>
+            )}
+            {sparkReady && (
+              <Badge variant="outline" className="text-xs text-amber-600 border-amber-400/40 bg-amber-500/5">
+                Spark Fallback
               </Badge>
             )}
             {neonReady && (
