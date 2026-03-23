@@ -14,6 +14,7 @@ import { StrategyTemplatesBrowser } from "@/components/StrategyTemplatesBrowser"
 import { UserMenu } from "@/components/UserMenu"
 import { Dashboard } from "@/components/Dashboard"
 import { AdminDashboard } from "@/components/AdminDashboard"
+import { EnterpriseAdmin } from "@/components/EnterpriseAdmin"
 import { LandingPage } from "@/components/LandingPage"
 import { SentinelBrain } from "@/components/SentinelBrain"
 import { WelcomeBanner } from "@/components/WelcomeBanner"
@@ -1264,7 +1265,7 @@ ${JSON.stringify(candidate)}`
           </AnimatePresence>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className={`hidden md:grid w-full max-w-5xl mx-auto mb-8 ${user.role === "admin" ? (canAccessNGOSaaS ? "grid-cols-9" : "grid-cols-8") : (canAccessNGOSaaS ? "grid-cols-7" : "grid-cols-6")}`}>
+            <TabsList className={`hidden md:grid w-full max-w-5xl mx-auto mb-8 ${user.role === "admin" ? (canAccessNGOSaaS ? "grid-cols-10" : "grid-cols-9") : (canAccessNGOSaaS ? "grid-cols-7" : "grid-cols-6")}`}>
               <TabsTrigger value="generate" className="gap-2 text-sm">
                 <Lightbulb size={18} weight="bold" />
                 <span>Strategy</span>
@@ -1309,6 +1310,12 @@ ${JSON.stringify(candidate)}`
                 <TabsTrigger value="admin" className="gap-2 text-sm">
                   <ShieldCheck size={18} weight="bold" />
                   <span>Admin</span>
+                </TabsTrigger>
+              )}
+              {user.role === "admin" && (
+                <TabsTrigger value="enterprise" className="gap-2 text-sm">
+                  <ShieldCheck size={18} weight="bold" />
+                  <span>Enterprise</span>
                 </TabsTrigger>
               )}
             </TabsList>
@@ -2345,6 +2352,12 @@ ${JSON.stringify(candidate)}`
             {user.role === "admin" && (
               <TabsContent value="admin" className="space-y-6">
                 <AdminDashboard />
+              </TabsContent>
+            )}
+
+            {user.role === "admin" && (
+              <TabsContent value="enterprise" className="space-y-6">
+                <EnterpriseAdmin user={user} organizationId={user.id} />
               </TabsContent>
             )}
           </Tabs>
