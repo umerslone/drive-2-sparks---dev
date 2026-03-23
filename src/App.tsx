@@ -274,6 +274,7 @@ function App() {
   const charCount = description.length
   const showCharCounter = charCount >= 900
   const entitlements = user ? getFeatureEntitlements(user) : null
+  const canAccessNGOSaaS = user?.role === "admin" || !!entitlements?.isTeam
   const strategyPlan = entitlements?.isPaidPlan ? (entitlements.isTeam ? "team" : "pro") : "basic"
   const strategyPlanConfig = getStrategyPlanConfig(strategyPlan)
   const exportPlanConfig = getExportPlanConfig(strategyPlan)
@@ -998,6 +999,13 @@ ${JSON.stringify(candidate)}`
   }, [workflowRuns, timelineSearch, timelinePlanFilter, timelineStatusFilter])
 
   const comparedRuns = useMemo(() => {
+  
+      useEffect(() => {
+        if (activeTab === "ngo-saas" && !canAccessNGOSaaS) {
+          setActiveTab("generate")
+          toast.error("NGO-SAAS is available for Team plan and Super Admin only.")
+        }
+      }, [activeTab, canAccessNGOSaaS])
     return (workflowRuns || []).filter((run) => selectedTimelineCompare.includes(run.id)).slice(0, 2)
   }, [workflowRuns, selectedTimelineCompare])
 
@@ -1254,7 +1262,7 @@ ${JSON.stringify(candidate)}`
           </AnimatePresence>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className={`hidden md:grid w-full max-w-5xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-9" : "grid-cols-7"}`}>
+            <TabsList className={`hidden md:grid w-full max-w-5xl mx-auto mb-8 ${user.role === "admin" ? "grid-cols-8" : "grid-cols-6"}`}>
               <TabsTrigger value="generate" className="gap-2 text-sm">
                 <Lightbulb size={18} weight="bold" />
                 <span>Strategy</span>
@@ -1289,10 +1297,6 @@ ${JSON.stringify(candidate)}`
                   <span>Sentinel Brain</span>
                 </TabsTrigger>
               )}
-              <TabsTrigger value="ngo-saas" className="gap-2 text-sm">
-                <Target size={18} weight="bold" />
-                <span>NGO-SAAS</span>
-              </TabsTrigger>
               {user.role === "admin" && (
                 <TabsTrigger value="admin" className="gap-2 text-sm">
                   <ShieldCheck size={18} weight="bold" />
@@ -1308,6 +1312,23 @@ ${JSON.stringify(candidate)}`
                 transition={{ duration: 0.5, delay: 0.1 }}
                 className="bg-card/80 backdrop-blur-sm rounded-2xl shadow-lg border border-border/50 p-6 md:p-8"
               >
+                {canAccessNGOSaaS && (
+                  <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <Target size={16} weight="bold" className="text-emerald-600" />
+                      <span className="text-sm font-medium text-foreground">NGO-SAAS Module</span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 border-emerald-400/40"
+                      onClick={() => setActiveTab("ngo-saas")}
+                    >
+                      <span>Open</span>
+                    </Button>
+                  </div>
+                )}
                 <label htmlFor="product-description" className="block text-sm font-semibold text-foreground mb-3 flex items-center justify-between">
                   <span>Describe your topic, product, or service</span>
                   <Button

@@ -295,7 +295,7 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
   const [copiedEmail, setCopiedEmail] = useState<number | null>(null)
 
   const entitlements = user ? getFeatureEntitlements(user) : null
-  const canGenerate = user?.role === "admin" || entitlements?.isPaidPlan || entitlements?.isTrialActive || true // open to all but costs credits
+  const canAccessNGOModule = user?.role === "admin" || !!entitlements?.isTeam
 
   const currentAction = NGO_ACTIONS.find((a) => a.id === activeAction) ?? NGO_ACTIONS[0]
   const neonReady = isNeonConfigured()
@@ -311,6 +311,10 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
   const handleGenerate = async () => {
     if (!user) {
       toast.error("Please sign in to use the NGO module.")
+      return
+    }
+    if (!canAccessNGOModule) {
+      toast.error("NGO-SAAS is available for Team plan and Super Admin only.")
       return
     }
     if (input.trim().length < 30) {
@@ -378,6 +382,21 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
     setInput("")
     setResult(null)
     setError(null)
+  }
+
+  if (!canAccessNGOModule) {
+    return (
+      <Card className="border-amber-400/30 bg-amber-500/5">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">NGO-SAAS Access Restricted</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            This module is reserved for social sector and NGO organizations and is available only on the Team plan and Super Admin access.
+          </p>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
