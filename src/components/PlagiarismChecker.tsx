@@ -1097,7 +1097,7 @@ Return ONLY a valid JSON object:
       if (typeof response === "object" && response !== null) {
         parsed = response as Record<string, unknown>
       } else {
-        let cleaned = response.trim()
+        let cleaned = (response as string).trim()
         if (cleaned.startsWith("```json")) {
           cleaned = cleaned.replace(/^```json\s*/, "").replace(/```\s*$/, "")
         } else if (cleaned.startsWith("```")) {

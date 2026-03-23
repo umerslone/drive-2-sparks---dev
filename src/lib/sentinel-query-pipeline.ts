@@ -375,7 +375,7 @@ async function safeCacheAndLog(
   response: string,
   providers: QueryProvider[],
   brainHits: number,
-  options?: { module?: string; userId?: number }
+  options?: { module?: string; userId?: number; model?: string }
 ): Promise<void> {
   try {
     await cacheGeneration({
