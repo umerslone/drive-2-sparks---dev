@@ -466,6 +466,40 @@ function parseNGOResult(raw: unknown): NGOResult {
   }
 }
 
+function normalizeGeneratedHeader(header: string, fallback: string): string {
+  const cleaned = header.replace(/\s+/g, " ").trim()
+  if (!cleaned) return fallback
+
+  const tokens = cleaned.split(" ")
+  if (tokens.length < 6) return cleaned
+
+  const deduped: string[] = []
+  let index = 0
+
+  while (index < tokens.length) {
+    let collapsed = false
+    const maxWindow = Math.min(12, Math.floor((tokens.length - index) / 2))
+
+    for (let size = maxWindow; size >= 3; size -= 1) {
+      const first = tokens.slice(index, index + size).join(" ").toLowerCase()
+      const second = tokens.slice(index + size, index + size * 2).join(" ").toLowerCase()
+      if (first && first === second) {
+        deduped.push(...tokens.slice(index, index + size))
+        index += size * 2
+        collapsed = true
+        break
+      }
+    }
+
+    if (!collapsed) {
+      deduped.push(tokens[index])
+      index += 1
+    }
+  }
+
+  return deduped.join(" ").trim()
+}
+
 // --- Export helpers ---
 
 function getBrandForExport(org: OrgSettings | null) {
@@ -1137,6 +1171,7 @@ Respond ONLY with valid JSON:
         }
       }
       parsed = await enhanceResultForDonorReadiness(parsed)
+      parsed.header = normalizeGeneratedHeader(parsed.header, `${currentAction.label} Output`)
       setResult(parsed)
       if (neonReady) {
         await logQuery({
