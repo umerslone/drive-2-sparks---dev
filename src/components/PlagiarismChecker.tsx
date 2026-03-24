@@ -45,6 +45,18 @@ import { createWorker } from "tesseract.js"
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 const MAX_DOCUMENT_CHARS = 50000
+const HUMANIZER_MAX_WORDS = 1000
+
+type HumanizerWorkspaceEntry = {
+  id: string
+  label: string
+  sourceName: string
+  originalText: string
+  humanizedText: string
+  wordCount: number
+  creditsUsed: number
+  timestamp: number
+}
 
 interface PlagiarismCheckerProps {
   user: UserProfile | null
@@ -126,6 +138,10 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
     `saved-reviews-${userId}`,
     []
   )
+  const [humanizerWorkspace, setHumanizerWorkspace] = useSafeKV<HumanizerWorkspaceEntry[]>(
+    `humanizer-workspace-${userId}`,
+    []
+  )
   const [monthlyReviewExportCount, setMonthlyReviewExportCount] = useSafeKV<number>(
     `${getCurrentMonthKey("review-exports")}-${userId}`,
     0
@@ -150,6 +166,29 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
   const reuploadHistory = [...normalizedFingerprintRegistry].sort((left, right) => right.lastReviewedAt - left.lastReviewedAt)
   const totalFingerprintReviews = reuploadHistory.reduce((sum, entry) => sum + entry.reviewCount, 0)
 
+  const countWords = (input: string) => {
+    const normalized = input.trim()
+    if (!normalized) {
+      return 0
+    }
+    return normalized.split(/\s+/).length
+  }
+
+  const trimToWordLimit = (input: string, maxWords: number) => {
+    const words = input.trim().split(/\s+/).filter(Boolean)
+    if (words.length <= maxWords) {
+      return input
+    }
+    return words.slice(0, maxWords).join(" ")
+  }
+
+  const estimateHumanizerCredits = (wordCount: number) => {
+    if (wordCount <= 0) {
+      return 0
+    }
+    return Math.max(1, Math.ceil(wordCount / 1000))
+  }
+
   const resetUploadInput = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
@@ -169,15 +208,28 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
 
     if (normalized.length > MAX_DOCUMENT_CHARS) {
       const truncated = normalized.slice(0, MAX_DOCUMENT_CHARS)
-      setText(truncated)
+      const finalText = mode === "humanizer" ? trimToWordLimit(truncated, HUMANIZER_MAX_WORDS) : truncated
+      setText(finalText)
       setUploadStatus(
         `${sourceLabel} processed: ${normalized.length.toLocaleString()} characters extracted; truncated to ${MAX_DOCUMENT_CHARS.toLocaleString()} for analysis.`
       )
       toast.warning(`Document is very large. Trimmed to ${MAX_DOCUMENT_CHARS.toLocaleString()} characters for reliable analysis.`)
+      if (mode === "humanizer") {
+        toast.info(`Humanizer accepts up to ${HUMANIZER_MAX_WORDS} words per run.`)
+      }
       return true
     }
 
-    setText(normalized)
+    if (mode === "humanizer") {
+      const capped = trimToWordLimit(normalized, HUMANIZER_MAX_WORDS)
+      setText(capped)
+      const extractedWords = countWords(normalized)
+      if (extractedWords > HUMANIZER_MAX_WORDS) {
+        toast.warning(`Upload exceeds ${HUMANIZER_MAX_WORDS} words. It was capped for Humanizer.`)
+      }
+    } else {
+      setText(normalized)
+    }
     setUploadStatus(`${sourceLabel} processed: ${normalized.length.toLocaleString()} characters extracted.`)
     return true
   }
@@ -1032,6 +1084,14 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
       return
     }
 
+    const wordCount = countWords(text)
+    if (wordCount > HUMANIZER_MAX_WORDS) {
+      const capped = trimToWordLimit(text, HUMANIZER_MAX_WORDS)
+      setText(capped)
+      toast.warning(`Humanizer supports up to ${HUMANIZER_MAX_WORDS} words per run. Your text was capped.`)
+      return
+    }
+
     if (!entitlements.isPaidPlan && user.role !== "admin") {
       toast.info("🔒 Humanizer is available for Admin, Pro, and Team plans. Upgrade to unlock this feature.")
       return
@@ -1039,6 +1099,12 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
 
     if (!entitlements.canUseHumanizer) {
       toast.error("No credits remaining. Please buy credits to continue using Humanizer.")
+      return
+    }
+
+    const requiredCredits = estimateHumanizerCredits(wordCount)
+    if (entitlements.isPaidPlan && user.role !== "admin" && proCredits < requiredCredits) {
+      toast.error(`Not enough credits. This run requires ${requiredCredits} credit(s).`)
       return
     }
 
@@ -1129,15 +1195,19 @@ Return ONLY a valid JSON object:
         timestamp: Date.now(),
       }
 
-      const creditUse = await consumeProCredits(user.id, 1)
-      if (!creditUse.success) {
-        toast.error(creditUse.error || "Failed to consume Pro credit")
-        return
+      let remainingCredits = proCredits
+      if (user.role !== "admin") {
+        const creditUse = await consumeProCredits(user.id, requiredCredits)
+        if (!creditUse.success) {
+          toast.error(creditUse.error || "Failed to consume Pro credit")
+          return
+        }
+        remainingCredits = creditUse.remainingCredits
+        setProCredits(remainingCredits)
       }
 
-      setProCredits(creditUse.remainingCredits)
       setHumanizedResult(humanized)
-      toast.success(`Text humanized successfully! ${creditUse.remainingCredits} Pro credits left.`)
+      toast.success(`Text humanized successfully! ${remainingCredits} Pro credits left.`)
     } catch (error) {
       console.error("Humanization error:", error)
       toast.error("Failed to humanize text. Please try again.")
@@ -1174,6 +1244,60 @@ Return ONLY a valid JSON object:
     }
   }
 
+  const exportHumanizedText = (entry: { humanizedText: string; sourceName: string; timestamp: number }) => {
+    const safeName = entry.sourceName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9-_]+/gi, "_") || "text"
+    const fileNameForExport = `${safeName}_regenerated_${new Date(entry.timestamp).toISOString().slice(0, 10)}.txt`
+    const blob = new Blob([entry.humanizedText], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = fileNameForExport
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const saveCurrentHumanizedToWorkspace = () => {
+    if (!humanizedResult) {
+      toast.error("No humanized output available to save")
+      return
+    }
+
+    const sourceName = fileName || "Direct Input"
+    const entry: HumanizerWorkspaceEntry = {
+      id: `humanized-${Date.now()}`,
+      label: `Humanized ${new Date().toLocaleString()}`,
+      sourceName,
+      originalText: humanizedResult.originalText,
+      humanizedText: humanizedResult.humanizedText,
+      wordCount: countWords(humanizedResult.originalText),
+      creditsUsed: estimateHumanizerCredits(countWords(humanizedResult.originalText)),
+      timestamp: Date.now(),
+    }
+
+    setHumanizerWorkspace((current) => [entry, ...(current || [])].slice(0, 50))
+    toast.success("Saved to Humanizer workspace")
+  }
+
+  const loadHumanizerWorkspaceEntry = (entry: HumanizerWorkspaceEntry) => {
+    setText(entry.originalText)
+    setHumanizedResult({
+      originalText: entry.originalText,
+      humanizedText: entry.humanizedText,
+      changes: [],
+      timestamp: entry.timestamp,
+    })
+    setFileName(entry.sourceName)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+    toast.success("Workspace entry loaded")
+  }
+
+  const deleteHumanizerWorkspaceEntry = (id: string) => {
+    setHumanizerWorkspace((current) => (current || []).filter((entry) => entry.id !== id))
+    toast.success("Workspace entry removed")
+  }
+
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-green-600"
     if (score >= 60) return "text-yellow-600"
@@ -1207,7 +1331,7 @@ Return ONLY a valid JSON object:
               <MagnifyingGlass size={24} weight="duotone" className="text-primary" />
             </div>
             <div>
-              <CardTitle>Academic Review & Integrity Analyzer</CardTitle>
+              <CardTitle>{mode === "humanizer" ? "Humanizer Workspace" : "Academic Review & Integrity Analyzer"}</CardTitle>
               <CardDescription>
                 {mode === "humanizer"
                   ? "Rewrite text to be natural, authentic, and human-like while keeping original meaning"
@@ -1320,16 +1444,26 @@ Return ONLY a valid JSON object:
                   toast.error("Please upload a file using the upload button instead of pasting encoded data.")
                   return
                 }
+                if (mode === "humanizer") {
+                  const next = trimToWordLimit(value, HUMANIZER_MAX_WORDS)
+                  if (next !== value) {
+                    toast.warning(`Humanizer supports up to ${HUMANIZER_MAX_WORDS} words per run.`)
+                  }
+                  setText(next)
+                  return
+                }
                 setText(value)
               }}
               placeholder="Paste your text here or upload a document above..."
               className="min-h-64 resize-none"
-              maxLength={50000}
+              maxLength={mode === "humanizer" ? 12000 : 50000}
             />
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-2">
               <div className="flex items-center gap-3">
                 <p className="text-xs text-muted-foreground">
-                  {text.length.toLocaleString()} / 50,000 characters
+                  {mode === "humanizer"
+                    ? `${countWords(text).toLocaleString()} / ${HUMANIZER_MAX_WORDS.toLocaleString()} words • ${estimateHumanizerCredits(countWords(text))} credit(s) required`
+                    : `${text.length.toLocaleString()} / 50,000 characters`}
                 </p>
                 {text.length > 0 && (
                   <Button
@@ -1351,13 +1485,17 @@ Return ONLY a valid JSON object:
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   onClick={humanizeText}
-                  disabled={!text.trim() || isHumanizing || isChecking || (entitlements.isPaidPlan && proCredits <= 0)}
+                  disabled={!text.trim() || isHumanizing || isChecking || (entitlements.isPaidPlan && proCredits < estimateHumanizerCredits(countWords(text)))}
                   variant="outline"
                   size="sm"
                   className="gap-2"
                 >
                   <LockKey size={16} weight="duotone" />
-                  {isHumanizing ? "Humanizing..." : entitlements.isPaidPlan ? `Humanize (${subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)}: ${proCredits})` : "Humanize (Pro/Team)"}
+                  {isHumanizing
+                    ? "Humanizing..."
+                    : entitlements.isPaidPlan
+                      ? `Humanize (${estimateHumanizerCredits(countWords(text))} credit(s), balance: ${proCredits})`
+                      : "Humanize (Pro/Team)"}
                 </Button>
 
                 {!entitlements.isPaidPlan && user.role !== "admin" && (
@@ -1973,6 +2111,26 @@ Return ONLY a valid JSON object:
                 >
                   Use Humanized Text
                 </Button>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <Button
+                    onClick={saveCurrentHumanizedToWorkspace}
+                    variant="secondary"
+                    className="gap-2"
+                  >
+                    <FloppyDisk size={16} weight="duotone" />
+                    Save to Workspace
+                  </Button>
+                  <Button
+                    onClick={() => exportHumanizedText({
+                      humanizedText: humanizedResult.humanizedText,
+                      sourceName: fileName || "Direct Input",
+                      timestamp: humanizedResult.timestamp,
+                    })}
+                    variant="outline"
+                  >
+                    Export Regenerated TXT
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </motion.div>
@@ -1986,7 +2144,7 @@ Return ONLY a valid JSON object:
         onDiscard={handleDiscardReview}
       />
 
-      <Card className="mt-8 border-border/70">
+      {mode !== "humanizer" && <Card className="mt-8 border-border/70">
         <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
           <div className="space-y-1">
             <CardTitle>Re-upload History</CardTitle>
@@ -2055,9 +2213,71 @@ Return ONLY a valid JSON object:
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      {(savedReviews && savedReviews.length > 0) && (
+      {mode === "humanizer" && (
+        <Card className="mt-8 border-border/70">
+          <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div className="space-y-1">
+              <CardTitle>Saved Humanizer Workspace</CardTitle>
+              <CardDescription>
+                Store rewritten outputs, reload them quickly, and export regenerated text files.
+              </CardDescription>
+            </div>
+            <Badge variant="secondary">{(humanizerWorkspace || []).length} entries</Badge>
+          </CardHeader>
+          <CardContent>
+            {(humanizerWorkspace || []).length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                <p className="text-sm font-medium text-foreground">No saved humanized outputs yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Run Humanizer, then use Save to Workspace to keep your regenerated outputs.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {(humanizerWorkspace || []).map((entry) => (
+                  <div key={entry.id} className="rounded-lg border border-border bg-muted/20 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="space-y-2 min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-foreground truncate">{entry.label}</p>
+                          <Badge variant="outline">{entry.wordCount} words</Badge>
+                          <Badge variant="secondary">{entry.creditsUsed} credit(s)</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Source: {entry.sourceName}</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{entry.humanizedText}</p>
+                        <p className="text-xs text-muted-foreground">Saved: {new Date(entry.timestamp).toLocaleString()}</p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Button variant="outline" size="sm" onClick={() => loadHumanizerWorkspaceEntry(entry)}>
+                          Load
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => exportHumanizedText({
+                            humanizedText: entry.humanizedText,
+                            sourceName: entry.sourceName,
+                            timestamp: entry.timestamp,
+                          })}
+                        >
+                          Export
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => deleteHumanizerWorkspaceEntry(entry.id)}>
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {mode !== "humanizer" && (savedReviews && savedReviews.length > 0) && (
         <div className="space-y-4 mt-8">
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-semibold text-foreground">Saved Reviews</h3>

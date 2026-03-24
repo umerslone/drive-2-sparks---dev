@@ -217,7 +217,12 @@ function App() {
     const checkAuth = async () => {
       try {
         // Restore secrets from KV first (survives Codespaces URL rotation)
-        await hydrateSecretsFromKV()
+        // Guard with timeout so refresh never gets stuck on splash screen.
+        try {
+          await withTimeout(hydrateSecretsFromKV(), "Secrets hydration")
+        } catch (secretsError) {
+          console.warn("Secrets hydration skipped:", secretsError)
+        }
 
         await withTimeout(authService.initializeMasterAdmin(), "Auth bootstrap")
         const currentUser = await withTimeout(authService.getCurrentUser(), "Current user lookup")
