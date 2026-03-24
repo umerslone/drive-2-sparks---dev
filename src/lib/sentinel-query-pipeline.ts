@@ -177,6 +177,9 @@ Create a unified, humanized response that intelligently combines the best of all
         : queryText
 
       const response = await copilotGenerate(augmentedPrompt)
+      if (!response || response.trim().length === 0) {
+        throw new Error("Copilot returned empty response")
+      }
       providers.push("copilot")
 
       if (neonReady) {
@@ -204,6 +207,9 @@ Create a unified, humanized response that intelligently combines the best of all
         : queryText
 
       const response = await geminiGenerate(augmentedPrompt)
+      if (!response || response.trim().length === 0) {
+        throw new Error("Gemini returned empty response")
+      }
       providers.push("gemini")
 
       // Cache the generation
@@ -232,6 +238,9 @@ Create a unified, humanized response that intelligently combines the best of all
         : queryText
 
       const response = await copilotGenerate(augmentedPrompt)
+      if (!response || response.trim().length === 0) {
+        throw new Error("Copilot returned empty response")
+      }
       providers.push("copilot")
 
       if (neonReady) {
@@ -255,6 +264,9 @@ Create a unified, humanized response that intelligently combines the best of all
   if (options?.sparkFallback) {
     try {
       const response = await options.sparkFallback()
+      if (!response || response.trim().length === 0) {
+        throw new Error("Spark returned empty response")
+      }
       providers.push("spark")
 
       if (neonReady) {
