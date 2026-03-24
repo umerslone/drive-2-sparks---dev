@@ -167,6 +167,8 @@ const buildFallbackLLMResult = (): MarketingResult => ({
   implementationChecklist: "Sample implementation checklist.",
 })
 
+const allowMockLLMFallback = Boolean(import.meta.env?.DEV)
+
 const fallbackPrompt: SparkClient["llmPrompt"] = (strings: TemplateStringsArray, ...values: unknown[]) => {
   let output = ""
   strings.forEach((chunk, index) => {
@@ -179,6 +181,9 @@ const fallbackPrompt: SparkClient["llmPrompt"] = (strings: TemplateStringsArray,
 }
 
 const fallbackLLM: SparkClient["llm"] = async () => {
+  if (!allowMockLLMFallback) {
+    throw new Error("Spark LLM unavailable and mock fallback is disabled in non-development environments.")
+  }
   return JSON.stringify(buildFallbackLLMResult())
 }
 
@@ -221,7 +226,10 @@ export const initializeSparkShim = () => {
         try {
           return await baseSpark.llm(prompt, model ?? "gpt-4o-mini", parseJson ?? true)
         } catch (error) {
-          console.warn("Spark LLM failed, using fallback generator", error)
+          if (!allowMockLLMFallback) {
+            throw error instanceof Error ? error : new Error("Spark LLM failed in non-development environment")
+          }
+          console.warn("Spark LLM failed, using development fallback generator", error)
         }
       }
       return (fallbackLLM as () => Promise<string>)()
