@@ -856,10 +856,10 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
         </div>
         {(geminiReady || copilotReady || sparkReady || neonReady) && (
           <div className="ml-auto flex flex-wrap gap-2">
-            {geminiReady && <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-400/40 bg-emerald-500/5">Gemini 2.5 Flash</Badge>}
-            {copilotReady && <Badge variant="outline" className="text-xs text-violet-600 border-violet-400/40 bg-violet-500/5">Copilot Bridge</Badge>}
-            {sparkReady && <Badge variant="outline" className="text-xs text-amber-600 border-amber-400/40 bg-amber-500/5">Spark Fallback</Badge>}
-            {neonReady && <Badge variant="outline" className="text-xs text-blue-600 border-blue-400/40 bg-blue-500/5">Neon Logging</Badge>}
+            {geminiReady && <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-400/40 bg-emerald-500/5 animate-pulse">Sentinel AI Cloud • Bridge</Badge>}
+            {copilotReady && <Badge variant="outline" className="text-xs text-blue-600 border-blue-400/40 bg-blue-500/5 animate-pulse">Sentinel AI MCP • Bridge</Badge>}
+            {sparkReady && <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-400/40 bg-emerald-500/5 animate-pulse">Sentinel Vertox Fallback • Bridge</Badge>}
+            {neonReady && <Badge variant="outline" className="text-xs text-blue-600 border-blue-400/40 bg-blue-500/5 animate-pulse">Sentinel Vertox Logs • Bridge</Badge>}
           </div>
         )}
       </div>

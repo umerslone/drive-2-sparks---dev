@@ -48,8 +48,14 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
   const [newMemberEmail, setNewMemberEmail] = useState("")
   const [newMemberName, setNewMemberName] = useState("")
   const [newMemberRole, setNewMemberRole] = useState<EnterpriseRole>("contributor")
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null)
-  const [grantingNGOAccess, setGrantingNGOAccess] = useState<string | null>(null)
+  const [setupPlan, setSetupPlan] = useState<EnterpriseSubscription["plan"]>("enterprise")
+  const [setupTier, setSetupTier] = useState<EnterpriseSubscription["tier"]>("ENTERPRISE")
+  const [setupBillingCycle, setSetupBillingCycle] = useState<EnterpriseSubscription["billingCycle"]>("annual")
+  const [setupMaxMembers, setSetupMaxMembers] = useState<number>(500)
+  const [setupRenewalDate, setSetupRenewalDate] = useState<string>(
+    new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  )
+  const [setupActive, setSetupActive] = useState<boolean>(true)
 
   useEffect(() => {
     loadSubscription()
@@ -60,9 +66,16 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
       setLoading(true)
       const sub = await getEnterpriseSubscription(organizationId)
       if (!sub) {
-        setError("Enterprise subscription not found")
+        setSubscription(null)
+        setError(null)
       } else {
         setSubscription(sub)
+        setSetupPlan(sub.plan)
+        setSetupTier(sub.tier)
+        setSetupBillingCycle(sub.billingCycle)
+        setSetupMaxMembers(sub.features.maxTeamMembers)
+        setSetupRenewalDate(new Date(sub.renewalDate).toISOString().slice(0, 10))
+        setSetupActive(sub.isActive)
       }
     } catch (err) {
       setError("Failed to load subscription")
@@ -133,7 +146,6 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
   async function handleGrantNGOAccess(memberId: string, level: NGOAccessLevel) {
     try {
       setError(null)
-      setGrantingNGOAccess(memberId)
       const result = await grantNGOAccess(organizationId, memberId, level)
       if (result.success) {
         await loadSubscription()
@@ -143,8 +155,63 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
     } catch (err) {
       setError("Failed to grant NGO access")
       console.error(err)
-    } finally {
-      setGrantingNGOAccess(null)
+    }
+  }
+
+  async function handleCreateSubscription() {
+    try {
+      setError(null)
+      const tierFeatures = getEnterpriseFeatures(setupTier)
+      const created: EnterpriseSubscription = {
+        organizationId,
+        plan: setupPlan,
+        tier: setupTier,
+        ownerId: user.id,
+        teamMembers: [],
+        features: {
+          ...tierFeatures,
+          maxTeamMembers: setupMaxMembers > 0 ? setupMaxMembers : tierFeatures.maxTeamMembers,
+        },
+        billingCycle: setupBillingCycle,
+        renewalDate: new Date(setupRenewalDate).getTime(),
+        isActive: setupActive,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+
+      await saveEnterpriseSubscription(created)
+      await loadSubscription()
+    } catch (err) {
+      setError("Failed to create subscription")
+      console.error(err)
+    }
+  }
+
+  async function handleSaveSubscriptionSettings() {
+    if (!subscription) return
+
+    try {
+      setError(null)
+      const tierFeatures = getEnterpriseFeatures(setupTier)
+      const updated: EnterpriseSubscription = {
+        ...subscription,
+        plan: setupPlan,
+        tier: setupTier,
+        billingCycle: setupBillingCycle,
+        renewalDate: new Date(setupRenewalDate).getTime(),
+        isActive: setupActive,
+        features: {
+          ...tierFeatures,
+          maxTeamMembers: setupMaxMembers > 0 ? setupMaxMembers : tierFeatures.maxTeamMembers,
+        },
+        updatedAt: Date.now(),
+      }
+
+      await saveEnterpriseSubscription(updated)
+      await loadSubscription()
+    } catch (err) {
+      setError("Failed to update subscription settings")
+      console.error(err)
     }
   }
 
@@ -174,7 +241,109 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
   }
 
   if (loading) return <div>Loading subscription...</div>
-  if (!subscription) return <div>Subscription not found</div>
+
+  if (!subscription) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Enterprise Subscription Setup</CardTitle>
+            <CardDescription>Create a subscription to manage users, licenses, plans, and access control.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Plan</p>
+                <Select value={setupPlan} onValueChange={(v) => setSetupPlan(v as EnterpriseSubscription["plan"])}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="starter">Starter</SelectItem>
+                    <SelectItem value="professional">Professional</SelectItem>
+                    <SelectItem value="enterprise">Enterprise</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Tier</p>
+                <Select
+                  value={setupTier}
+                  onValueChange={(v) => {
+                    const nextTier = v as EnterpriseSubscription["tier"]
+                    setSetupTier(nextTier)
+                    setSetupMaxMembers(getEnterpriseFeatures(nextTier).maxTeamMembers)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BASIC">BASIC</SelectItem>
+                    <SelectItem value="PRO">PRO</SelectItem>
+                    <SelectItem value="TEAMS">TEAMS</SelectItem>
+                    <SelectItem value="ENTERPRISE">ENTERPRISE</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Billing Cycle</p>
+                <Select value={setupBillingCycle} onValueChange={(v) => setSetupBillingCycle(v as EnterpriseSubscription["billingCycle"])}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="annual">Annual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Licenses (Max Members)</p>
+                <Input
+                  type="number"
+                  min={1}
+                  value={setupMaxMembers}
+                  onChange={(e) => setSetupMaxMembers(Math.max(1, Number(e.target.value) || 1))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Renewal Date</p>
+                <Input type="date" value={setupRenewalDate} onChange={(e) => setSetupRenewalDate(e.target.value)} />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Subscription Status</p>
+                <Select value={setupActive ? "active" : "inactive"} onValueChange={(v) => setSetupActive(v === "active")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Button onClick={handleCreateSubscription} className="w-full md:w-auto">
+              Create Subscription
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   const features = getEnterpriseFeatures(subscription.tier)
   const memberCount = subscription.teamMembers.length
@@ -189,6 +358,95 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
           <CardDescription>Organization ID: {organizationId}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded-lg p-4">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Plan</p>
+              <Select value={setupPlan} onValueChange={(v) => setSetupPlan(v as EnterpriseSubscription["plan"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="starter">Starter</SelectItem>
+                  <SelectItem value="professional">Professional</SelectItem>
+                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Tier</p>
+              <Select
+                value={setupTier}
+                onValueChange={(v) => {
+                  const nextTier = v as EnterpriseSubscription["tier"]
+                  setSetupTier(nextTier)
+                  setSetupMaxMembers(getEnterpriseFeatures(nextTier).maxTeamMembers)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BASIC">BASIC</SelectItem>
+                  <SelectItem value="PRO">PRO</SelectItem>
+                  <SelectItem value="TEAMS">TEAMS</SelectItem>
+                  <SelectItem value="ENTERPRISE">ENTERPRISE</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Billing Cycle</p>
+              <Select value={setupBillingCycle} onValueChange={(v) => setSetupBillingCycle(v as EnterpriseSubscription["billingCycle"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="annual">Annual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Licenses (Max Members)</p>
+              <Input
+                type="number"
+                min={1}
+                value={setupMaxMembers}
+                onChange={(e) => setSetupMaxMembers(Math.max(1, Number(e.target.value) || 1))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Renewal Date</p>
+              <Input type="date" value={setupRenewalDate} onChange={(e) => setSetupRenewalDate(e.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Subscription Status</p>
+              <Select value={setupActive ? "active" : "inactive"} onValueChange={(v) => setSetupActive(v === "active")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={handleSaveSubscriptionSettings}>Save Subscription Settings</Button>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-gray-600">Plan</p>

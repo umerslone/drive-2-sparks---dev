@@ -163,7 +163,8 @@ function SettingsPanel() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Database size={20} weight="duotone" className="text-primary" />
-            Neon Database (pgvector)
+            Sentinel Vertox Database
+            <Badge variant="outline" className="ml-1 text-[10px] text-blue-600 border-blue-400/40 bg-blue-500/5 animate-pulse">Bridge</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -190,7 +191,8 @@ function SettingsPanel() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Lightning size={20} weight="duotone" className="text-amber-500" />
-            Gemini 2.5 Flash
+            Sentinel AI Cloud
+            <Badge variant="outline" className="ml-1 text-[10px] text-emerald-600 border-emerald-400/40 bg-emerald-500/5 animate-pulse">Bridge</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -217,7 +219,8 @@ function SettingsPanel() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <GitBranch size={20} weight="duotone" className="text-purple-500" />
-            Copilot Enterprise
+            Sentinel AI MCP
+            <Badge variant="outline" className="ml-1 text-[10px] text-blue-600 border-blue-400/40 bg-blue-500/5 animate-pulse">Bridge</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -311,12 +314,12 @@ function DataSyncPanel() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
           <ArrowsClockwise size={20} weight="duotone" className="text-emerald-500" />
-          Data Sync — LocalStorage ↔ Neon DB
+          Data Sync — LocalStorage ↔ Sentinel Vertox DB
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Sync your app data between this browser's localStorage and Neon DB.
+          Sync your app data between this browser's localStorage and Sentinel Vertox DB.
           Once synced, your data persists across browsers and devices.
         </p>
 

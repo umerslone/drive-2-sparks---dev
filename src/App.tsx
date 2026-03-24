@@ -1265,60 +1265,68 @@ ${JSON.stringify(candidate)}`
           </AnimatePresence>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className={`hidden md:grid w-full max-w-5xl mx-auto mb-8 ${user.role === "admin" ? (canAccessNGOSaaS ? "grid-cols-10" : "grid-cols-9") : (canAccessNGOSaaS ? "grid-cols-7" : "grid-cols-6")}`}>
-              <TabsTrigger value="generate" className="gap-2 text-sm">
-                <Lightbulb size={18} weight="bold" />
-                <span>Strategy</span>
-              </TabsTrigger>
-              <TabsTrigger value="ideas" className="gap-2 text-sm">
-                <Sparkle size={18} weight="bold" />
-                <span>Ideas</span>
-              </TabsTrigger>
-              <TabsTrigger value="plagiarism" className="gap-2 text-sm">
-                {entitlements?.canAccessReview || user.role === "admin" ? (
-                  <MagnifyingGlass size={18} weight="bold" />
-                ) : (
-                  <LockSimple size={18} weight="bold" className="text-muted-foreground" />
-                )}
-                <span>Review</span>
-              </TabsTrigger>
-              <TabsTrigger value="dashboard" className="gap-2 text-sm">
-                <ChartBar size={18} weight="bold" />
-                <span>Dashboard</span>
-              </TabsTrigger>
-              <TabsTrigger value="saved" className="gap-2 text-sm">
-                <FolderOpen size={18} weight="bold" />
-                <span>Saved ({savedStrategies?.length || 0})</span>
-              </TabsTrigger>
-              <TabsTrigger value="timeline" className="gap-2 text-sm">
-                <ClockCounterClockwise size={18} weight="bold" />
-                <span>Timeline</span>
-              </TabsTrigger>
-              {user.role === "admin" && (
-                <TabsTrigger value="sentinel-brain" className="gap-2 text-sm">
-                  <Brain size={18} weight="bold" />
-                  <span>Sentinel Brain</span>
-                </TabsTrigger>
-              )}
-              {canAccessNGOSaaS && (
-                <TabsTrigger value="ngo-saas" className="gap-2 text-sm">
-                  <Target size={18} weight="bold" />
-                  <span>NGO-SAAS</span>
-                </TabsTrigger>
-              )}
-              {user.role === "admin" && (
-                <TabsTrigger value="admin" className="gap-2 text-sm">
-                  <ShieldCheck size={18} weight="bold" />
-                  <span>Admin</span>
-                </TabsTrigger>
-              )}
-              {user.role === "admin" && (
-                <TabsTrigger value="enterprise" className="gap-2 text-sm">
-                  <ShieldCheck size={18} weight="bold" />
-                  <span>Enterprise</span>
-                </TabsTrigger>
-              )}
-            </TabsList>
+            {/* Desktop/Tablet Tabs Navigation */}
+            <div className="hidden md:block w-full mb-8 sticky top-0 z-40 py-2">
+              <div className="w-full max-w-7xl mx-auto px-2 md:px-4">
+                <TabsList className="w-full h-auto bg-card/80 backdrop-blur-sm rounded-2xl border border-border/60 shadow-sm flex flex-wrap xl:flex-nowrap gap-1 md:gap-2 p-2 md:p-3 justify-start xl:justify-between overflow-x-auto xl:overflow-visible">
+                  <TabsTrigger value="generate" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                    <Lightbulb size={16} weight="bold" className="flex-shrink-0" />
+                    <span className="hidden sm:inline">Strategy</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="saved" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                    <FolderOpen size={16} weight="bold" className="flex-shrink-0" />
+                    <span className="hidden sm:inline">Saved</span>
+                    <span className="inline md:hidden text-[10px] font-semibold bg-accent/30 px-1.5 py-0.5 rounded">
+                      {savedStrategies?.length || 0}
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger value="ideas" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                    <Sparkle size={16} weight="bold" className="flex-shrink-0" />
+                    <span className="hidden sm:inline">Ideas</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="plagiarism" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                    {entitlements?.canAccessReview || user.role === "admin" ? (
+                      <MagnifyingGlass size={16} weight="bold" className="flex-shrink-0" />
+                    ) : (
+                      <LockSimple size={16} weight="bold" className="text-muted-foreground flex-shrink-0" />
+                    )}
+                    <span className="hidden sm:inline">Review</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="dashboard" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                    <ChartBar size={16} weight="bold" className="flex-shrink-0" />
+                    <span className="hidden sm:inline">Dashboard</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="timeline" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                    <ClockCounterClockwise size={16} weight="bold" className="flex-shrink-0" />
+                    <span className="hidden sm:inline">Timeline</span>
+                  </TabsTrigger>
+                  {user.role === "admin" && (
+                    <TabsTrigger value="sentinel-brain" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-normal flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                      <Brain size={16} weight="bold" className="flex-shrink-0" />
+                      <span className="text-center leading-tight">Sentinel Brain</span>
+                    </TabsTrigger>
+                  )}
+                  {canAccessNGOSaaS && (
+                    <TabsTrigger value="ngo-saas" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-normal flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                      <Target size={16} weight="bold" className="flex-shrink-0" />
+                      <span className="text-center leading-tight">NGO-SAAS</span>
+                    </TabsTrigger>
+                  )}
+                  {user.role === "admin" && (
+                    <TabsTrigger value="admin" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                      <ShieldCheck size={16} weight="bold" className="flex-shrink-0" />
+                      <span className="hidden md:inline">Admin</span>
+                    </TabsTrigger>
+                  )}
+                  {user.role === "admin" && (
+                    <TabsTrigger value="enterprise" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                      <ShieldCheck size={16} weight="bold" className="flex-shrink-0" />
+                      <span className="hidden md:inline">Enterprise</span>
+                    </TabsTrigger>
+                  )}
+                </TabsList>
+              </div>
+            </div>
 
             <TabsContent value="generate" className="space-y-8">
               <motion.div
@@ -2369,6 +2377,7 @@ ${JSON.stringify(candidate)}`
           isAdmin={user.role === "admin"}
           savedCount={savedStrategies?.length || 0}
           canAccessReview={entitlements?.canAccessReview || user.role === "admin"}
+          canAccessNGOSaaS={canAccessNGOSaaS}
         />
         
         <Footer />
