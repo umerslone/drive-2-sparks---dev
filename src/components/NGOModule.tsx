@@ -248,6 +248,7 @@ Regional Context (MANDATORY):
 - Region: Pakistan & Azad Jammu and Kashmir (AJK)
 - Standards: SECP NPO registration, FBR exemption, PCP code of ethics
 - Context: Post-flood recovery, youth unemployment, girls education barriers
+- Do not assume flood, girls, or youth themes unless they are explicitly present in the user input or project files.
 - Terminology: "beneficiaries" not "users", "field officers" not "staff"
 - Currency: PKR alongside USD for international donors
 - Key SDGs: 1, 2, 3, 4, 5, 6, 13
