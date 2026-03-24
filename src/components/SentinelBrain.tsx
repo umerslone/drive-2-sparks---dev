@@ -1076,7 +1076,7 @@ export function SentinelBrain() {
       className="space-y-6"
     >
       <div className="flex items-center gap-3 mb-2">
-        <Brain size={32} weight="duotone" className="text-primary" />
+        <Brain size={32} weight="duotone" className="text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.7)]" />
         <div>
           <h2 className="text-2xl font-bold text-foreground">Sentinel Brain</h2>
           <p className="text-sm text-muted-foreground">Enterprise AI knowledge base, platform connectors, and configuration</p>

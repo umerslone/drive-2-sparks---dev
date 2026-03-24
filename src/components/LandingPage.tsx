@@ -5,7 +5,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { AuthForm } from "@/components/AuthForm"
 import { Sparkle, Target, Lightbulb, ShieldCheck, Quotes, Brain, ChartBar, Presentation, Rocket, Users, Lightning, ArrowRight, CheckCircle, ArrowLeft, UserCircle, CursorClick } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
-import faviconImg from "@/assets/images/favicon.png"
+import faviconImg from "@/assets/images/sentinel-sas-logo.svg"
 
 import { UserProfile } from "@/types"
 
