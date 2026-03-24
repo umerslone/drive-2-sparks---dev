@@ -48,6 +48,7 @@ import { logQuery } from "@/lib/sentinel-brain"
 import { REPORT_BRAND } from "@/lib/report-branding"
 import { getNGOAccessLevel, canWrite, canDelete, canManageTeam, getTeamMembers, addTeamMember, updateMemberAccess, removeMember } from "@/lib/ngo-team"
 import { UserProfile, NGOAccessLevel, NGOTeamMember } from "@/types"
+import mammoth from "mammoth"
 
 // --- Types ---
 
@@ -730,6 +731,68 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
     setActiveAction(actionId); setInput(""); setResult(null); setError(null)
   }
 
+  const extractTextFromFile = async (file: File): Promise<string> => {
+    const ext = file.name.split(".").pop()?.toLowerCase() || ""
+
+    if (ext === "docx") {
+      try {
+        const arrayBuffer = await file.arrayBuffer()
+        const extracted = await mammoth.extractRawText({ arrayBuffer })
+        return extracted.value || ""
+      } catch {
+        return ""
+      }
+    }
+
+    try {
+      return await file.text()
+    } catch {
+      return ""
+    }
+  }
+
+  const extractProjectDetailsFromText = (text: string, fileName: string) => {
+    const normalized = text
+      .replace(/\u0000/g, "")
+      .replace(/\r/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+
+    const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean)
+    const firstMeaningfulLine = lines.find((line) => line.length >= 8 && line.length <= 140)
+    const fallbackTitle = fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")
+
+    const sentences = normalized
+      .replace(/\s+/g, " ")
+      .split(/(?<=[.!?])\s+/)
+      .filter(Boolean)
+
+    const overview = sentences.slice(0, 4).join(" ").slice(0, 800)
+    const low = normalized.toLowerCase()
+
+    const donorCandidates = ["USAID", "UN Women", "UNICEF", "UNDP", "World Bank", "ADB", "FCDO", "EU", "GIZ", "JICA"]
+    const detectedDonor = donorCandidates.find((donor) => low.includes(donor.toLowerCase())) || "Not explicitly found"
+
+    const geoCandidates = ["Pakistan", "AJK", "Azad Jammu and Kashmir", "Lahore", "Islamabad", "Karachi", "Peshawar", "Muzaffarabad"]
+    const detectedGeography = geoCandidates.filter((place) => low.includes(place.toLowerCase()))
+
+    const beneficiaryCandidates = ["girls", "women", "youth", "children", "students", "teachers", "communities", "families"]
+    const detectedBeneficiaries = beneficiaryCandidates.filter((tag) => low.includes(tag))
+
+    return {
+      title: firstMeaningfulLine || fallbackTitle,
+      overview: overview || normalized.slice(0, 500),
+      donor: detectedDonor,
+      geography: detectedGeography.length > 0 ? detectedGeography.join(", ") : "Pakistan / AJK",
+      beneficiaries: detectedBeneficiaries.length > 0 ? detectedBeneficiaries.join(", ") : "General beneficiary groups",
+      wordCount: normalized.split(/\s+/).filter(Boolean).length,
+    }
+  }
+
+  const buildProjectInputTemplate = (details: ReturnType<typeof extractProjectDetailsFromText>) => {
+    return `Project: ${details.title}\nDescription: ${details.overview}\nTarget Beneficiaries: ${details.beneficiaries}\nLocation: ${details.geography}\nDonor: ${details.donor}`
+  }
+
   const buildBrandedReportBody = (title: string, content: string, branding: OrgSettings | null) => {
     const brand = getBrandForExport(branding)
     return `# ${title}
@@ -832,7 +895,19 @@ Respond ONLY with valid JSON:
       }
       let prompt = getPromptForAction(activeAction, input)
       prompt += getKBContext()
-      prompt += `\n\nMANDATORY GENERATION POLICY:\n- Before final output, run internal integrity and relevance checks on uploaded context.\n- Use high-depth sector/domain reasoning for NGO/nonprofit work in Pakistan & AJK.\n- Cross-check claims against available Sentinel Brain and reference materials context.\n- Remove ambiguous, corrupted, or binary-like snippets from the final narrative.\n- Keep final result donor-safe, policy-safe, and actionable.`
+
+      let policy = ""
+      if (activeAction === "grant") {
+        policy = `\n\nMANDATORY GENERATION POLICY:\n- Map your project accurately to UN SDGs and generate a structured 5-section donor proposal.\n- Run internal integrity and relevance checks on uploaded context.\n- Use high-depth sector/domain reasoning for NGO/nonprofit work in Pakistan & AJK.\n- Keep final result donor-safe, policy-safe, and highly actionable.`
+      } else if (activeAction === "impact") {
+        policy = `\n\nMANDATORY GENERATION POLICY:\n- Ensure empirical rigor and realistic M&E principles logic (Outputs vs Outcomes).\n- Cross-check numeric claims defensively.\n- Do not invent metrics; synthesize strictly from provided reports.`
+      } else if (activeAction === "narrative") {
+        policy = `\n\nMANDATORY GENERATION POLICY:\n- Strictly enforce PII anonymization to protect beneficiary identities.\n- Maintain an ethical, dignity-focused narrative tone. No poverty porn or exploitation.`
+      } else {
+        policy = `\n\nMANDATORY GENERATION POLICY:\n- Keep output clear, actionable, and culturally tuned to the context of Pakistan & AJK.`
+      }
+      prompt += policy
+
       const res = await sentinelQuery(prompt, {
         module: "ngo_module",
         userId: typeof user.id === "number" ? user.id : undefined,
@@ -942,10 +1017,25 @@ Respond ONLY with valid JSON:
     const context = files.length > 0
       ? `\n\nContext from uploaded files:\n${files.map((f) => `[${f.name}]:\n${f.content.substring(0, 800)}`).join("\n\n")}`
       : ""
-    const prompt = `${PAKISTAN_AJK_CONTEXT}
+
+    let prompt = ""
+    if (activeAction === "grant") {
+      prompt = `${PAKISTAN_AJK_CONTEXT}\nGenerate a structured Donor Alignment Report for the proposal titled "${reportTitle}".${context}\n\nStructure: Executive Summary, Target SDGs Matrix, Expected Impact, Risk Management, and Actionable Next Steps. Focus on donor readiness and 5-section logic.`
+    } else if (activeAction === "impact") {
+      prompt = `${PAKISTAN_AJK_CONTEXT}\nGenerate a rigorous Monitoring & LogFrame Audit Report titled "${reportTitle}".${context}\n\nStructure: Overview, LogFrame Analysis, Output Delivery Status, Outcome Insights, and M&E Recommendations.`
+    } else if (activeAction === "narrative") {
+      prompt = `${PAKISTAN_AJK_CONTEXT}\nGenerate an Ethical Narrative Highlights Report titled "${reportTitle}".${context}\n\nStructure: Key Stories Overview, Ethical Compliance & Dignity Check, PII Anonymization Audit, and Recommended Publication Channels.`
+    } else if (activeAction === "outreach") {
+      prompt = `${PAKISTAN_AJK_CONTEXT}\nGenerate a Community Outreach Snapshot Report titled "${reportTitle}".${context}\n\nStructure: Audience Profile, Language Complexity Reduction, Key Community Messages, and Distribution Channels.`
+    } else if (activeAction === "email") {
+      prompt = `${PAKISTAN_AJK_CONTEXT}\nGenerate a Donor Engagement & Follow-Up Strategy Report titled "${reportTitle}".${context}\n\nStructure: Campaign Goal, Donor Segmentation Tactics, Key Messaging Anchors, and Follow-up Timeline.`
+    } else {
+      prompt = `${PAKISTAN_AJK_CONTEXT}
 Write a concise project summary report titled "${reportTitle}".${context}
 
 Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommendations, Next Steps. 2-4 paragraphs each.`
+    }
+
     setReportGenerating(true)
     try {
       const creditResult = await consumeReviewCredit(user.id)
@@ -1013,12 +1103,7 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
         return
       }
 
-      let content = ""
-      try {
-        content = await file.text()
-      } catch {
-        content = ""
-      }
+      let content = await extractTextFromFile(file)
 
       if (!content || content.trim().length === 0) {
         try {
@@ -1042,13 +1127,29 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
       const summarySource = hasReadableText && !looksBinary
         ? normalizedContent
         : `File uploaded: ${file.name}\nType: ${file.type || "unknown"}\nSize: ${(file.size / 1024).toFixed(1)} KB\nNo readable inline text extracted; metadata captured for context.`
-      const words = summarySource.split(/\s+/).filter(Boolean).length
+      const parsedDetails = hasReadableText && !looksBinary
+        ? extractProjectDetailsFromText(summarySource, file.name)
+        : null
+      const words = parsedDetails?.wordCount ?? 0
       const summarySnippet = summarySource.length > 900
         ? `${summarySource.substring(0, 900)}\n[...]`
         : summarySource
 
-      const kbSummary = `File: ${file.name}\nType: ${file.type || "unknown"}\nSize: ${(file.size / 1024).toFixed(1)} KB\nEstimated words: ${words}\n\nSummary:\n${summarySnippet}`
+      const kbSummary = parsedDetails
+        ? `File: ${file.name}\nType: ${file.type || "unknown"}\nSize: ${(file.size / 1024).toFixed(1)} KB\nEstimated words: ${words}\n\nParsed Project Details:\n- Project Title: ${parsedDetails.title}\n- Donor Hint: ${parsedDetails.donor}\n- Geography: ${parsedDetails.geography}\n- Beneficiaries: ${parsedDetails.beneficiaries}\n\nOverview:\n${parsedDetails.overview}\n\nSource Snippet:\n${summarySnippet}`
+        : `File: ${file.name}\nType: ${file.type || "unknown"}\nSize: ${(file.size / 1024).toFixed(1)} KB\nEstimated words: ${words}\n\nSummary:\n${summarySnippet}`
       setKbContentSummary(kbSummary)
+
+      if (parsedDetails) {
+        const template = buildProjectInputTemplate(parsedDetails)
+        setInput((current) => {
+          if (!current.trim()) {
+            return template
+          }
+          return current
+        })
+        toast.success("Project details extracted and loaded into project section")
+      }
 
       const truncatedContent = content.length > 5000 ? content.substring(0, 5000) + "\n[... content truncated ...]" : content
 
