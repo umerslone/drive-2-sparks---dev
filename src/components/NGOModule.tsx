@@ -914,7 +914,7 @@ Respond ONLY with valid JSON:
         module: "ngo_module",
         userId: typeof user?.id === "number" ? user.id : undefined,
         skipCache: true,
-        useConsensus: true,
+        useConsensus: false,
         sparkFallback: async () => {
           if (typeof spark !== "undefined" && typeof spark.llm === "function") {
             return await spark.llm(improvePrompt, "gpt-4o", false) as string
@@ -923,9 +923,17 @@ Respond ONLY with valid JSON:
         },
       })
       const improvedParsed = parseNGOResult(improved.response)
+      // Only use improved result if it actually has more content than original
+      if (improvedParsed.mainContent.trim().length > candidate.mainContent.trim().length) {
+        return {
+          ...improvedParsed,
+          ethicalWarnings: [...(improvedParsed.ethicalWarnings || []), "Donor-readiness enhancement pass applied."],
+        }
+      }
+      // Enhancement produced weaker content; keep original
       return {
-        ...improvedParsed,
-        ethicalWarnings: [...(improvedParsed.ethicalWarnings || []), "Donor-readiness enhancement pass applied."],
+        ...candidate,
+        ethicalWarnings: [...(candidate.ethicalWarnings || []), "Enhancement pass did not improve content; original retained."],
       }
     } catch {
       return {
@@ -966,7 +974,7 @@ Respond ONLY with valid JSON:
         module: "ngo_module",
         userId: typeof user.id === "number" ? user.id : undefined,
         skipCache: true,
-        useConsensus: true,
+        useConsensus: false,
         sparkFallback: async () => {
           if (typeof spark !== "undefined" && typeof spark.llm === "function") {
             return await spark.llm(prompt, "gpt-4o", false) as string
@@ -987,6 +995,16 @@ Respond ONLY with valid JSON:
           sdgTags: [],
           ethicalWarnings: ["Structured JSON response was malformed; raw output shown."],
           suggestedKPIs: [],
+        }
+      }
+      // Safety net: if parsing ate the content, fall back to raw response
+      if (!parsed.mainContent || parsed.mainContent.trim().length === 0) {
+        const rawText = typeof res.response === "string"
+          ? res.response
+          : JSON.stringify(res.response, null, 2)
+        if (rawText.trim().length > 0) {
+          parsed.mainContent = rawText
+          parsed.ethicalWarnings = [...(parsed.ethicalWarnings || []), "JSON parser returned empty content; raw AI response shown."]
         }
       }
       parsed = await enhanceResultForDonorReadiness(parsed)
