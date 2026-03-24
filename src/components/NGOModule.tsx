@@ -311,7 +311,18 @@ function parseNGOResult(raw: unknown): NGOResult {
   let cleaned = raw.trim()
   if (cleaned.startsWith("```json")) cleaned = cleaned.replace(/^```json\s*/, "").replace(/```\s*$/, "")
   else if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```\s*/, "").replace(/```\s*$/, "")
-  return JSON.parse(cleaned.trim()) as NGOResult
+  const normalized = cleaned.trim()
+  try {
+    return JSON.parse(normalized) as NGOResult
+  } catch {
+    const start = normalized.indexOf("{")
+    const end = normalized.lastIndexOf("}")
+    if (start !== -1 && end !== -1 && end > start) {
+      const sliced = normalized.substring(start, end + 1)
+      return JSON.parse(sliced) as NGOResult
+    }
+    throw new Error("Failed to parse AI output as JSON")
+  }
 }
 
 // --- Export helpers ---
@@ -422,7 +433,7 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
   const [reportTitle, setReportTitle] = useState("")
   const [reportBody, setReportBody] = useState("")
   const [reportGenerating, setReportGenerating] = useState(false)
-  const [savedReports, setSavedReports] = useState<{ id: string; title: string; body: string; createdAt: number; status?: "draft" | "signed"; generatedBy?: string }[]>([])
+  const [savedReports, setSavedReports] = useState<{ id: string; title: string; body: string; createdAt: number; status?: "draft" | "signed" | "approved"; generatedBy?: string }[]>([])
   const [reportsLoaded, setReportsLoaded] = useState(false)
 
   // Org settings state
@@ -435,6 +446,7 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
 
   // Knowledge Base files for AI context
   const [uploadedKBFiles, setUploadedKBFiles] = useState<ProjectFile[]>([])
+  const [kbContentSummary, setKbContentSummary] = useState("")
   const [uploadingKBFile, setUploadingKBFile] = useState(false)
   const kbFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -537,17 +549,47 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
 
   const handleSignReport = (reportId: string) => {
     if (!user) return
-    const signatureBlock = `\n\n──────────────────────────\nSigned by: ${user.fullName}\nEmail: ${user.email}\nDate: ${new Date().toLocaleDateString()}\nRole: ${user.role === "admin" ? "Super Admin" : "Owner"}\n──────────────────────────`
+    const signatureBlock = `\n\n──────────────────────────\nApproved by: ${user.fullName}\nEmail: ${user.email}\nDate: ${new Date().toLocaleDateString()}\nRole: ${user.role === "admin" ? "Super Admin" : "Owner"}\n──────────────────────────`
     setSavedReports(prev => {
       const updated = prev.map(r =>
         r.id === reportId
-          ? { ...r, body: r.body + signatureBlock, status: "signed" as const }
+          ? { ...r, body: r.body + signatureBlock, status: "approved" as const }
           : r
       )
       kvSet(`ngo-reports-${userId}`, updated)
       return updated
     })
-    toast.success("Report signed. It is now available for export and visible to all team members.")
+    toast.success("Report approved. It is now available for export and visible to all users.")
+  }
+
+  const handleSaveGeneratedAsDraft = async () => {
+    if (!result) {
+      toast.error("No generated output to save")
+      return
+    }
+    if (!user) {
+      toast.error("Please sign in")
+      return
+    }
+
+    const title = `${currentAction.label} - ${new Date().toLocaleDateString()}`
+    const body = result.mainContent
+    const newReport = {
+      id: uuidv4(),
+      title,
+      body,
+      createdAt: Date.now(),
+      status: "draft" as const,
+      generatedBy: user?.fullName || "Unknown",
+    }
+
+    const updated = [newReport, ...savedReports]
+    setSavedReports(updated)
+    setReportTitle(title)
+    setReportBody(body)
+    await kvSet(`ngo-reports-${userId}`, updated)
+    setReportsLoaded(true)
+    toast.success("Saved to Reports as Draft")
   }
 
   const handleDeleteReport = (reportId: string) => {
@@ -562,13 +604,14 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
   // Persist NGO Module State
   useEffect(() => {
     const loadNGOState = async () => {
-      const saved = await kvGet<{ activeAction: string; input: string; uploadedKBFiles: ProjectFile[] }>(
+      const saved = await kvGet<{ activeAction: string; input: string; uploadedKBFiles: ProjectFile[]; kbContentSummary?: string }>(
         `ngo-module-state-${userId}`
       )
       if (saved) {
         setActiveAction(saved.activeAction)
         setInput(saved.input)
         setUploadedKBFiles(saved.uploadedKBFiles)
+        setKbContentSummary(saved.kbContentSummary || "")
       }
     }
     loadNGOState()
@@ -580,10 +623,11 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
         activeAction,
         input,
         uploadedKBFiles,
+        kbContentSummary,
       })
     }
     saveNGOState()
-  }, [activeAction, input, uploadedKBFiles, userId])
+  }, [activeAction, input, uploadedKBFiles, kbContentSummary, userId])
 
   const handleActionChange = (actionId: string) => {
     setActiveAction(actionId); setInput(""); setResult(null); setError(null)
@@ -603,10 +647,11 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
       }
       let prompt = getPromptForAction(activeAction, input)
       prompt += getKBContext()
+      prompt += `\n\nMANDATORY GENERATION POLICY:\n- Before final output, run internal integrity and relevance checks on uploaded context.\n- Use high-depth sector/domain reasoning for NGO/nonprofit work in Pakistan & AJK.\n- Cross-check claims against available Sentinel Brain and reference materials context.\n- Remove ambiguous, corrupted, or binary-like snippets from the final narrative.\n- Keep final result donor-safe, policy-safe, and actionable.`
       const res = await sentinelQuery(prompt, {
         module: "ngo_module",
         userId: typeof user.id === "number" ? user.id : undefined,
-        skipCache: false,
+        skipCache: true,
         useConsensus: true,
         sparkFallback: async () => {
           if (typeof spark !== "undefined" && typeof spark.llm === "function") {
@@ -615,7 +660,21 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
           throw new Error("Spark fallback unavailable")
         },
       })
-      const parsed = parseNGOResult(res.response)
+      let parsed: NGOResult
+      try {
+        parsed = parseNGOResult(res.response)
+      } catch {
+        const rawText = typeof res.response === "string"
+          ? res.response
+          : JSON.stringify(res.response, null, 2)
+        parsed = {
+          header: `${currentAction.label} Output`,
+          mainContent: rawText,
+          sdgTags: [],
+          ethicalWarnings: ["Structured JSON response was malformed; raw output shown."],
+          suggestedKPIs: [],
+        }
+      }
       setResult(parsed)
       if (neonReady) {
         await logQuery({
@@ -765,14 +824,43 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
         return
       }
 
-      // Only text files for KB context
-      const acceptedTypes = ["text/csv", "text/plain"]
-      if (!acceptedTypes.includes(file.type)) {
-        toast.error("Supported formats: TXT, CSV (text files only)")
-        return
+      let content = ""
+      try {
+        content = await file.text()
+      } catch {
+        content = ""
       }
 
-      const content = await file.text()
+      if (!content || content.trim().length === 0) {
+        try {
+          const buffer = await file.arrayBuffer()
+          content = new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(buffer))
+        } catch {
+          content = ""
+        }
+      }
+
+      const normalizedContent = content.replace(/\u0000/g, "").trim()
+      const printable = normalizedContent.replace(/[\x20-\x7E\n\r\t]/g, "")
+      const printableRatio = normalizedContent.length > 0
+        ? (normalizedContent.length - printable.length) / normalizedContent.length
+        : 0
+      const looksBinary =
+        normalizedContent.startsWith("PK") ||
+        normalizedContent.includes("[Content_Types].xml") ||
+        printableRatio < 0.65
+      const hasReadableText = normalizedContent.length > 0
+      const summarySource = hasReadableText && !looksBinary
+        ? normalizedContent
+        : `File uploaded: ${file.name}\nType: ${file.type || "unknown"}\nSize: ${(file.size / 1024).toFixed(1)} KB\nNo readable inline text extracted; metadata captured for context.`
+      const words = summarySource.split(/\s+/).filter(Boolean).length
+      const summarySnippet = summarySource.length > 900
+        ? `${summarySource.substring(0, 900)}\n[...]`
+        : summarySource
+
+      const kbSummary = `File: ${file.name}\nType: ${file.type || "unknown"}\nSize: ${(file.size / 1024).toFixed(1)} KB\nEstimated words: ${words}\n\nSummary:\n${summarySnippet}`
+      setKbContentSummary(kbSummary)
+
       const truncatedContent = content.length > 5000 ? content.substring(0, 5000) + "\n[... content truncated ...]" : content
 
       const newFile: ProjectFile = {
@@ -781,7 +869,7 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
         name: file.name,
         type: file.type.includes("csv") ? "csv" : "other",
         size: file.size,
-        content: truncatedContent,
+        content: (looksBinary ? kbSummary : truncatedContent) || kbSummary,
         uploadedAt: Date.now(),
       }
 
@@ -801,12 +889,15 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
   const handleRemoveKBFile = async (fileId: string) => {
     const updated = uploadedKBFiles.filter(f => f.id !== fileId)
     setUploadedKBFiles(updated)
+    if (updated.length === 0) {
+      setKbContentSummary("")
+    }
     await kvSet(`ngo-kb-files-${userId}`, updated)
     toast.success("File removed from knowledge base")
   }
 
   const getKBContext = (): string => {
-    if (uploadedKBFiles.length === 0) return ""
+    if (uploadedKBFiles.length === 0 && !kbContentSummary.trim()) return ""
     const escapedContent = uploadedKBFiles.map(f => {
       const escaped = f.content
         .replace(/\\/g, "\\\\")
@@ -815,7 +906,14 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
         .replace(/\r/g, "\\r")
       return `File: ${f.name}\n${escaped}`
     }).join("\n\n")
-    return `\n\nREFERENCE MATERIALS FROM KNOWLEDGE BASE:\n${escapedContent}`
+    const escapedSummary = kbContentSummary
+      ? kbContentSummary
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, "\\n")
+          .replace(/\r/g, "\\r")
+      : ""
+    return `\n\nREFERENCE MATERIALS FROM KNOWLEDGE BASE:\n${escapedContent}${escapedSummary ? `\n\nPRIMARY FILE SUMMARY:\n${escapedSummary}` : ""}`
   }
 
   // Access guard
@@ -938,12 +1036,21 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
                       <input
                         ref={kbFileInputRef}
                         type="file"
-                        accept=".csv,.txt"
                         onChange={(e) => handleKBFileSelect(e.target.files)}
                         className="hidden"
                       />
-                      <p className="text-xs text-muted-foreground">TXT, CSV (text files) · Max 10MB</p>
+                      <p className="text-xs text-muted-foreground">All file types supported · Max 10MB</p>
                     </div>
+                    {kbContentSummary && (
+                      <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/5 p-3 mb-3">
+                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-2">Content Summary</p>
+                        <Textarea
+                          value={kbContentSummary}
+                          readOnly
+                          className="min-h-[120px] text-xs font-mono bg-background/70"
+                        />
+                      </div>
+                    )}
                     {uploadedKBFiles.length > 0 && (
                       <div className="space-y-2">
                         {uploadedKBFiles.map((file) => (
@@ -1019,6 +1126,9 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
                         <h3 className="font-semibold text-foreground">{result.header}</h3>
                       </div>
                       <div className="flex flex-wrap gap-2 shrink-0">
+                        <Button variant="default" size="sm" onClick={handleSaveGeneratedAsDraft} className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
+                          <FloppyDisk size={14} />Save Draft
+                        </Button>
                         <Button variant="outline" size="sm" onClick={() => copyToClipboard(result.mainContent)} className="text-xs gap-1.5">
                           <CheckCircle size={14} />Copy
                         </Button>
@@ -1262,13 +1372,13 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
               <Separator />
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider pt-2">Saved Reports ({savedReports.length})</p>
               {savedReports.map((r) => (
-                <Card key={r.id} className={`border-border/50 ${r.status === "signed" ? "border-emerald-400/30 bg-emerald-500/5" : ""}`}>
+                <Card key={r.id} className={`border-border/50 ${(r.status === "signed" || r.status === "approved") ? "border-emerald-400/30 bg-emerald-500/5" : ""}`}>
                   <CardContent className="p-3 flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-foreground truncate">{r.title}</p>
-                        <Badge variant={r.status === "signed" ? "default" : "secondary"} className="text-xs shrink-0">
-                          {r.status === "signed" ? "Signed" : "Draft"}
+                        <Badge variant={(r.status === "signed" || r.status === "approved") ? "default" : "secondary"} className="text-xs shrink-0">
+                          {(r.status === "signed" || r.status === "approved") ? "Approved" : "Draft"}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -1278,9 +1388,9 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Button variant="outline" size="sm" className="text-xs" onClick={() => { setReportTitle(r.title); setReportBody(r.body) }}>View</Button>
-                      {hasDeleteAccess && r.status !== "signed" && (
+                      {hasDeleteAccess && r.status !== "signed" && r.status !== "approved" && (
                         <Button variant="outline" size="sm" className="text-xs gap-1 text-emerald-600 border-emerald-400/40" onClick={() => handleSignReport(r.id)}>
-                          <Signature size={13} weight="bold" /> Sign
+                          <Signature size={13} weight="bold" /> Approve
                         </Button>
                       )}
                       {hasDeleteAccess && (
@@ -1309,11 +1419,11 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
             </CardHeader>
             <CardContent className="space-y-4">
               {(() => {
-                const signedReports = savedReports.filter(r => r.status === "signed")
+                const signedReports = savedReports.filter(r => r.status === "signed" || r.status === "approved")
                 return signedReports.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                    Reports must be signed by an Owner/Admin before they can be exported.
-                    {savedReports.length > 0 && <span className="block mt-1 text-xs">{savedReports.length} draft report(s) pending signature in the Reports tab.</span>}
+                    Reports must be approved by an Owner/Admin before they can be exported.
+                    {savedReports.length > 0 && <span className="block mt-1 text-xs">{savedReports.length} draft report(s) pending approval in the Reports tab.</span>}
                   </div>
                 ) : (
                   signedReports.map((r) => (
