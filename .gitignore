@@ -34,3 +34,15 @@ pids
 .devcontainer/
 
 .spark-workbench-id
+
+# Temp/debug scripts and files
+check-db.mjs
+fix-*.mjs
+fix-*.patch
+patch-*.mjs
+setup_db.js
+temp.txt
+test-*.mjs
+test-*.html
+test-results/
+nul

@@ -4,6 +4,9 @@
     "version": "1.0.0",
     "description": "AI-Powered TechPigeon Assistant - Pakistan's leading AI platform",
     "type": "module",
+    "engines": {
+        "node": ">=18.0.0"
+    },
     "scripts": {
         "dev": "vite",
         "dev:backend": "node --env-file=.env.local backend/server.mjs",

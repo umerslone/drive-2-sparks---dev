@@ -296,8 +296,9 @@ function getCorsOrigin(req) {
   const origin = req.headers["origin"]
   if (!origin) return null
   
-  // Allow all localhost/127.0.0.1 variations during development
-  if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
+  // Allow localhost/127.0.0.1 only in non-production environments
+  if (process.env.NODE_ENV !== "production" &&
+      (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:"))) {
     return origin
   }
   
@@ -2244,14 +2245,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       // GET /api/sentinel/org/subscriptions/:module/seats
-      if (method === "GET" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+\/seats$/)) {
-        const mod = path.split("/")[5]
+      if (method === "GET" && reqPathname.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+\/seats$/)) {
+        const mod = reqPathname.split("/")[5]
         return handleGetModuleSeats(req, res, user, mod)
       }
 
       // GET /api/sentinel/org/subscriptions/:module
-      if (method === "GET" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/) && !path.endsWith("/seats")) {
-        const mod = path.split("/")[5]
+      if (method === "GET" && reqPathname.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/) && !reqPathname.endsWith("/seats")) {
+        const mod = reqPathname.split("/")[5]
         return handleGetOrgModSub(req, res, user, mod)
       }
 
@@ -2261,14 +2262,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       // PUT /api/sentinel/org/subscriptions/:module
-      if (method === "PUT" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/)) {
-        const mod = path.split("/")[5]
+      if (method === "PUT" && reqPathname.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/)) {
+        const mod = reqPathname.split("/")[5]
         return handleUpdateOrgModSub(req, res, user, mod)
       }
 
       // DELETE /api/sentinel/org/subscriptions/:module
-      if (method === "DELETE" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/)) {
-        const mod = path.split("/")[5]
+      if (method === "DELETE" && reqPathname.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/)) {
+        const mod = reqPathname.split("/")[5]
         return handleCancelOrgModSub(req, res, user, mod)
       }
 
@@ -2290,8 +2291,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       // GET /api/sentinel/reports/:id
-      if (method === "GET" && reqPathname.startsWith("/api/sentinel/reports/") && !path.includes("/transitions")) {
-        const reportId = path.split("/api/sentinel/reports/")[1]
+      if (method === "GET" && reqPathname.startsWith("/api/sentinel/reports/") && !reqPathname.includes("/transitions")) {
+        const reportId = reqPathname.split("/api/sentinel/reports/")[1]
         return handleGetReport(req, res, user, reportId)
       }
 
@@ -2302,49 +2303,49 @@ const server = http.createServer(async (req, res) => {
 
       // PUT /api/sentinel/reports/:id (update draft content)
       if (method === "PUT" && reqPathname.startsWith("/api/sentinel/reports/")) {
-        const reportId = path.split("/api/sentinel/reports/")[1]
+        const reportId = reqPathname.split("/api/sentinel/reports/")[1]
         return handleUpdateReport(req, res, user, reportId)
       }
 
       // POST /api/sentinel/reports/:id/submit
-      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/submit$/)) {
-        const reportId = path.split("/")[4]
+      if (method === "POST" && reqPathname.match(/^\/api\/sentinel\/reports\/[^/]+\/submit$/)) {
+        const reportId = reqPathname.split("/")[4]
         return handleSubmitReport(req, res, user, reportId)
       }
 
       // POST /api/sentinel/reports/:id/approve-sign
-      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/approve-sign$/)) {
-        const reportId = path.split("/")[4]
+      if (method === "POST" && reqPathname.match(/^\/api\/sentinel\/reports\/[^/]+\/approve-sign$/)) {
+        const reportId = reqPathname.split("/")[4]
         return handleApproveSignReport(req, res, user, reportId)
       }
 
       // POST /api/sentinel/reports/:id/publish
-      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/publish$/)) {
-        const reportId = path.split("/")[4]
+      if (method === "POST" && reqPathname.match(/^\/api\/sentinel\/reports\/[^/]+\/publish$/)) {
+        const reportId = reqPathname.split("/")[4]
         return handlePublishReport(req, res, user, reportId)
       }
 
       // POST /api/sentinel/reports/:id/revert
-      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/revert$/)) {
-        const reportId = path.split("/")[4]
+      if (method === "POST" && reqPathname.match(/^\/api\/sentinel\/reports\/[^/]+\/revert$/)) {
+        const reportId = reqPathname.split("/")[4]
         return handleRevertReport(req, res, user, reportId)
       }
 
       // DELETE /api/sentinel/reports/:id
       if (method === "DELETE" && reqPathname.startsWith("/api/sentinel/reports/")) {
-        const reportId = path.split("/api/sentinel/reports/")[1]
+        const reportId = reqPathname.split("/api/sentinel/reports/")[1]
         return handleDeleteReport(req, res, user, reportId)
       }
 
       // GET /api/sentinel/reports/:id/transitions
-      if (method === "GET" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/transitions$/)) {
-        const reportId = path.split("/")[4]
+      if (method === "GET" && reqPathname.match(/^\/api\/sentinel\/reports\/[^/]+\/transitions$/)) {
+        const reportId = reqPathname.split("/")[4]
         return handleGetReportTransitions(req, res, user, reportId)
       }
 
       // POST /api/sentinel/reports/:id/verify-signature
-      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/verify-signature$/)) {
-        const reportId = path.split("/")[4]
+      if (method === "POST" && reqPathname.match(/^\/api\/sentinel\/reports\/[^/]+\/verify-signature$/)) {
+        const reportId = reqPathname.split("/")[4]
         return handleVerifySignature(req, res, user, reportId)
       }
 
@@ -2783,7 +2784,26 @@ const server = http.createServer(async (req, res) => {
       const ext = path.extname(filePath).toLowerCase()
       const mimeType = extToMime[ext] || "application/octet-stream"
 
-      res.writeHead(200, { "Content-Type": mimeType })
+      // Cache headers: hashed assets get long-lived immutable cache; index.html gets no-cache
+      const isIndexHtml = filePath.endsWith("index.html")
+      const cacheControl = isIndexHtml
+        ? "no-cache, no-store, must-revalidate"
+        : "public, max-age=31536000, immutable"
+
+      const headers = {
+        "Content-Type": mimeType,
+        "Cache-Control": cacheControl,
+        ...SECURITY_HEADERS,
+      }
+
+      // CORS for static assets (fonts, etc.)
+      const corsOrigin = getCorsOrigin(req)
+      if (corsOrigin) {
+        headers["Access-Control-Allow-Origin"] = corsOrigin
+        headers["Vary"] = "Origin"
+      }
+
+      res.writeHead(200, headers)
       fs.createReadStream(filePath).pipe(res)
       return
     } catch (err) {
@@ -2794,6 +2814,18 @@ const server = http.createServer(async (req, res) => {
 
   // ── 404 ──
   return sendJson(res, 404, { error: "Not found" }, req)
+})
+
+// ─────────────────────────── Process Error Handlers ──────────────
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[FATAL] Unhandled promise rejection:", reason)
+})
+
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception:", err)
+  // Give time to flush logs before exiting
+  setTimeout(() => process.exit(1), 1000)
 })
 
 // ─────────────────────────── Startup ─────────────────────────────
