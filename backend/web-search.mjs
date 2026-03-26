@@ -108,6 +108,62 @@ async function searchWithDuckDuckGo(query, limit) {
   }
 }
 
+function normalizeSearchCansResults(payload, limit) {
+  const candidates = []
+  const topLevelArrays = [
+    payload?.results,
+    payload?.items,
+    payload?.organic_results,
+    payload?.data,
+  ]
+
+  for (const arr of topLevelArrays) {
+    if (!Array.isArray(arr)) continue
+    for (const item of arr) {
+      const title = cleanText(item?.title || item?.name || item?.heading)
+      const url = cleanText(item?.url || item?.link || item?.href)
+      const snippet = cleanText(item?.snippet || item?.description || item?.text || "")
+      if (!title || !url) continue
+      candidates.push({ title, url, snippet, source: "searchcans" })
+      if (candidates.length >= limit) return candidates
+    }
+  }
+
+  return candidates
+}
+
+async function searchWithSearchCans(query, limit, apiKey) {
+  const endpoint = process.env.SEARCHCANS_API_URL || "https://www.searchcans.com/api/search"
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      s: query,
+      t: "google",
+      p: 1,
+      num: Math.max(1, Math.min(limit, 10)),
+    }),
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "")
+    throw new Error(`SearchCans error ${response.status}: ${body.slice(0, 160)}`)
+  }
+
+  const data = await response.json()
+  const results = normalizeSearchCansResults(data, limit)
+
+  return {
+    provider: "searchcans",
+    results,
+  }
+}
+
 export async function searchWeb(query, limit = 5) {
   const cleanQuery = cleanText(query)
   const boundedLimit = Math.max(1, Math.min(Number(limit) || 5, 8))
@@ -116,6 +172,16 @@ export async function searchWeb(query, limit = 5) {
     return {
       provider: "none",
       results: [],
+    }
+  }
+
+  const searchCansApiKey = process.env.SEARCHCANS_API_KEY
+  if (searchCansApiKey) {
+    try {
+      const result = await searchWithSearchCans(cleanQuery, boundedLimit, searchCansApiKey)
+      if (result.results.length > 0) return result
+    } catch (err) {
+      console.warn("[web-search] searchcans failed:", err instanceof Error ? err.message : String(err))
     }
   }
 

@@ -450,7 +450,36 @@ Create a unified, humanized response that intelligently combines the best of all
     }
   }
 
-  // Step 3b: Gemini as secondary fallback
+  // Step 4: Fallback to Spark LLM
+  if (options?.sparkFallback) {
+    try {
+      const generationStart = Date.now()
+      const response = await options.sparkFallback()
+      if (!response || response.trim().length === 0) {
+        throw new Error("Spark returned empty response")
+      }
+      providers.push("spark")
+
+      if (neonReady) {
+        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "spark-llm" })
+      }
+
+      return finalizeResult({
+        response,
+        providers,
+        brainHits,
+        brainContext,
+        cached: false,
+        model: "spark-llm",
+        status: "ok",
+      }, Date.now() - generationStart)
+    } catch (err) {
+      console.warn("Spark fallback failed:", err)
+      providerErrors.push(`spark: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // Step 5: Gemini as final hosted fallback
   if (geminiReady) {
     try {
       const generationStart = Date.now()
@@ -484,38 +513,9 @@ Create a unified, humanized response that intelligently combines the best of all
     }
   }
 
-  // Step 4: Fallback to Spark LLM
-  if (options?.sparkFallback) {
-    try {
-      const generationStart = Date.now()
-      const response = await options.sparkFallback()
-      if (!response || response.trim().length === 0) {
-        throw new Error("Spark returned empty response")
-      }
-      providers.push("spark")
+  // Step 5b removed: backend mode executes as primary path above
 
-      if (neonReady) {
-        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "spark-llm" })
-      }
-
-      return finalizeResult({
-        response,
-        providers,
-        brainHits,
-        brainContext,
-        cached: false,
-        model: "spark-llm",
-        status: "ok",
-      }, Date.now() - generationStart)
-    } catch (err) {
-      console.warn("Spark fallback failed:", err)
-      providerErrors.push(`spark: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  // Step 4b removed: backend mode executes as primary path above
-
-  // Step 5: Last resort — return brain context directly if available
+  // Step 6: Last resort — return brain context directly if available
   if (brainContext.length > 0) {
     return finalizeResult({
       response: `Based on available knowledge:\n\n${brainContext.join("\n\n")}`,
