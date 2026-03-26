@@ -13,6 +13,11 @@ import {
   type EnterpriseSubscription,
   type EnterpriseRole,
   type EnterpriseTeamMember,
+  reconcileEnterpriseMemberEntitlements,
+  updateEnterpriseMemberModuleAccess,
+  updateEnterpriseMemberIndividualProLicense,
+  listEnterpriseCreditUsage,
+  type EnterpriseCreditUsageEntry,
 } from "@/lib/enterprise-subscription"
 import { NGOAccessLevel } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -35,6 +40,8 @@ import {
 } from "@/components/ui/table"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { toast } from "sonner"
+import { adminService } from "@/lib/admin"
 
 interface EnterpriseAdminProps {
   user: UserProfile
@@ -48,6 +55,7 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
   const [newMemberEmail, setNewMemberEmail] = useState("")
   const [newMemberName, setNewMemberName] = useState("")
   const [newMemberRole, setNewMemberRole] = useState<EnterpriseRole>("contributor")
+  const [newMemberPassword, setNewMemberPassword] = useState("")
   const [setupPlan, setSetupPlan] = useState<EnterpriseSubscription["plan"]>("enterprise")
   const [setupTier, setSetupTier] = useState<EnterpriseSubscription["tier"]>("ENTERPRISE")
   const [setupBillingCycle, setSetupBillingCycle] = useState<EnterpriseSubscription["billingCycle"]>("annual")
@@ -56,6 +64,7 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
     new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   )
   const [setupActive, setSetupActive] = useState<boolean>(true)
+  const [creditUsage, setCreditUsage] = useState<EnterpriseCreditUsageEntry[]>([])
 
   useEffect(() => {
     loadSubscription()
@@ -68,6 +77,7 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
       if (!sub) {
         setSubscription(null)
         setError(null)
+        setCreditUsage([])
       } else {
         setSubscription(sub)
         setSetupPlan(sub.plan)
@@ -76,6 +86,8 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
         setSetupMaxMembers(sub.features.maxTeamMembers)
         setSetupRenewalDate(new Date(sub.renewalDate).toISOString().slice(0, 10))
         setSetupActive(sub.isActive)
+        const usage = await listEnterpriseCreditUsage(organizationId)
+        setCreditUsage(usage)
       }
     } catch (err) {
       setError("Failed to load subscription")
@@ -94,13 +106,18 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
         organizationId,
         newMemberEmail,
         newMemberName,
-        newMemberRole
+        newMemberRole,
+        newMemberPassword,
       )
 
       if (result.success) {
         setNewMemberEmail("")
         setNewMemberName("")
         setNewMemberRole("contributor")
+        setNewMemberPassword("")
+        if (result.warning) {
+          setError(result.warning)
+        }
         await loadSubscription()
       } else {
         setError(result.error || "Failed to add team member")
@@ -180,6 +197,7 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
       }
 
       await saveEnterpriseSubscription(created)
+      await reconcileEnterpriseMemberEntitlements(organizationId)
       await loadSubscription()
     } catch (err) {
       setError("Failed to create subscription")
@@ -208,6 +226,7 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
       }
 
       await saveEnterpriseSubscription(updated)
+      await reconcileEnterpriseMemberEntitlements(organizationId)
       await loadSubscription()
     } catch (err) {
       setError("Failed to update subscription settings")
@@ -226,6 +245,72 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
       }
     } catch (err) {
       setError("Failed to revoke NGO access")
+      console.error(err)
+    }
+  }
+
+  async function handleSetMemberPassword(member: EnterpriseTeamMember) {
+    const nextPassword = prompt(`Set password for ${member.email} (min 6 chars):`)
+    if (!nextPassword) return
+
+    try {
+      const result = await adminService.updateUserPassword(member.email, nextPassword)
+      if (result.success) {
+        toast.success(`Password updated for ${member.email}`)
+      } else {
+        toast.error(result.error || "Failed to update password")
+      }
+    } catch {
+      toast.error("Failed to update password")
+    }
+  }
+
+  async function handleModuleToggle(
+    member: EnterpriseTeamMember,
+    moduleName: "review" | "humanizer",
+    enabled: boolean
+  ) {
+    try {
+      setError(null)
+    const baseModules: Array<"strategy" | "ideas" | "review" | "humanizer"> = ["strategy", "ideas"]
+    const current = member.moduleAccess || baseModules
+    const next = new Set(current)
+    if (enabled) {
+      next.add(moduleName)
+    } else {
+      next.delete(moduleName)
+    }
+    next.add("strategy")
+    next.add("ideas")
+
+    const result = await updateEnterpriseMemberModuleAccess(
+      organizationId,
+      member.id,
+      Array.from(next) as Array<"strategy" | "ideas" | "review" | "humanizer">
+    )
+
+    if (result.success) {
+      await loadSubscription()
+    } else {
+      setError(result.error || "Failed to update module access")
+    }
+    } catch (err) {
+      setError("Failed to update module access")
+      console.error(err)
+    }
+  }
+
+  async function handleIndividualProToggle(member: EnterpriseTeamMember, enabled: boolean) {
+    try {
+      setError(null)
+      const result = await updateEnterpriseMemberIndividualProLicense(organizationId, member.id, enabled)
+      if (result.success) {
+        await loadSubscription()
+      } else {
+        setError(result.error || "Failed to update individual Pro license")
+      }
+    } catch (err) {
+      setError("Failed to update individual Pro license")
       console.error(err)
     }
   }
@@ -550,6 +635,12 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
                   <SelectItem value="viewer">Viewer</SelectItem>
                 </SelectContent>
               </Select>
+              <Input
+                type="password"
+                placeholder="Password (min 6 chars for new login)"
+                value={newMemberPassword}
+                onChange={(e) => setNewMemberPassword(e.target.value)}
+              />
               <Button onClick={handleAddMember} className="w-full">
                 Add Member
               </Button>
@@ -573,8 +664,11 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>NGO Access</TableHead>
+                    <TableHead>Role</TableHead>
+                  <TableHead>Plan Eligibility</TableHead>
+                    <TableHead>Modules</TableHead>
+                    <TableHead>Individual Pro</TableHead>
+                    <TableHead>NGO Access</TableHead>
                   <TableHead>Added</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -596,6 +690,43 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
                           <SelectItem value="viewer">Viewer</SelectItem>
                         </SelectContent>
                       </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="capitalize">
+                        {subscription.plan}
+                      </Badge>
+                      <p className="text-[11px] text-muted-foreground mt-1">Tier {subscription.tier}</p>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <p className="text-xs">Strategy, Ideas (always)</p>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={(member.moduleAccess || ["strategy", "ideas"]).includes("review")}
+                            onChange={(e) => void handleModuleToggle(member, "review", e.target.checked)}
+                          />
+                          Review
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={(member.moduleAccess || ["strategy", "ideas"]).includes("humanizer")}
+                            onChange={(e) => void handleModuleToggle(member, "humanizer", e.target.checked)}
+                          />
+                          Humanizer
+                        </label>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(member.individualProLicense)}
+                          onChange={(e) => void handleIndividualProToggle(member, e.target.checked)}
+                        />
+                        {member.individualProLicense ? "Enabled" : "Disabled"}
+                      </label>
                     </TableCell>
                     <TableCell>
                       {features.canAccessNGOSaaS ? (
@@ -636,14 +767,62 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
                       {new Date(member.addedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleRemoveMember(member.id)}
-                      >
-                        Remove
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSetMemberPassword(member)}
+                        >
+                          Set Password
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleRemoveMember(member.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
                     </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Enterprise Credit Usage</CardTitle>
+          <CardDescription>
+            Credits consumed by enterprise members are charged to enterprise owner/admin wallet.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {creditUsage.length === 0 ? (
+            <p className="text-sm text-gray-500">No credit usage yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>User</TableHead>
+                  <TableHead>Module</TableHead>
+                  <TableHead>Credits</TableHead>
+                  <TableHead>Charged To</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>When</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {creditUsage.slice(0, 50).map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell>{entry.actorEmail}</TableCell>
+                    <TableCell className="capitalize">{entry.module}</TableCell>
+                    <TableCell>{entry.credits}</TableCell>
+                    <TableCell>{entry.chargedToUserId}</TableCell>
+                    <TableCell>{entry.reason}</TableCell>
+                    <TableCell>{new Date(entry.createdAt).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

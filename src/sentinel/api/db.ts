@@ -884,6 +884,25 @@ function rowToNGOReport(row: Record<string, unknown>): NGOReport {
     exportedFormats: Array.isArray(row.exported_formats)
       ? row.exported_formats
       : JSON.parse((row.exported_formats as string) || "[]"),
+    // Phase 2: workflow state machine fields
+    status: (row.status as NGOReport["status"]) ?? "DRAFT",
+    submittedBy: (row.submitted_by as string | null) ?? undefined,
+    submittedAt: row.submitted_at ? Number(row.submitted_at) : undefined,
+    approvedBy: (row.approved_by as string | null) ?? undefined,
+    approvedAt: row.approved_at ? Number(row.approved_at) : undefined,
+    publishedBy: (row.published_by as string | null) ?? undefined,
+    publishedAt: row.published_at ? Number(row.published_at) : undefined,
+    updatedAt: row.updated_at ? Number(row.updated_at) : undefined,
+    updatedBy: (row.updated_by as string | null) ?? undefined,
+    // Phase 2: digital signature
+    signature: row.signature_hash
+      ? {
+          signatureHash: row.signature_hash as string,
+          signedBy: row.signed_by as string,
+          signedAt: Number(row.signed_at) || 0,
+          contentHash: "", // Content hash is not stored separately in legacy rows
+        }
+      : undefined,
   }
 }
 

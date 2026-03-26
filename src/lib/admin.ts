@@ -18,7 +18,8 @@ function getCurrentMonthKey(prefix: string): string {
 
 async function simpleHash(text: string): Promise<string> {
   const encoder = new TextEncoder()
-  const data = encoder.encode(text)
+  const salted = `sentinel:${text}:v2`
+  const data = encoder.encode(salted)
   const hashBuffer = await crypto.subtle.digest("SHA-256", data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("")
@@ -202,15 +203,23 @@ export const adminService = {
         return { success: false, error: "Password must be at least 6 characters" }
       }
 
-      const credentials = await getSafeKVClient().get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY) || {}
-      const credential = credentials[email.toLowerCase()]
+      const users = await getSafeKVClient().get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
+      const userEntry = Object.entries(users).find(([, candidate]) => candidate.email.toLowerCase() === email.toLowerCase())
+      const user = userEntry?.[1]
+      const userId = userEntry?.[0]
 
-      if (!credential) {
-        return { success: false, error: "Credentials not found for this user" }
+      if (!user || !userId) {
+        return { success: false, error: "User not found" }
       }
 
-      credential.passwordHash = await simpleHash(newPassword)
-      credentials[email.toLowerCase()] = credential
+      const credentials = await getSafeKVClient().get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY) || {}
+      const normalizedEmail = email.toLowerCase()
+      const nextPasswordHash = await simpleHash(newPassword)
+      credentials[normalizedEmail] = {
+        email: normalizedEmail,
+        userId,
+        passwordHash: nextPasswordHash,
+      }
       await getSafeKVClient().set(USER_CREDENTIALS_KEY, credentials)
 
       return { success: true }

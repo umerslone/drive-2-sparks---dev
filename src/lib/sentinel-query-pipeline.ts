@@ -5,6 +5,9 @@ import {
   getCachedGeneration,
   cacheGeneration,
   logQuery,
+  appendChatMessage,
+  storeRetrievalTrace,
+  autoTitleThreadFromFirstMessage,
 } from "./sentinel-brain"
 import { isNeonConfigured } from "./neon-client"
 import { getEnvConfig } from "./env-config"
@@ -22,6 +25,10 @@ export interface PipelineResult {
   status?: "ok" | "needs_clarification"
   clarificationQuestions?: string[]
   qualityScore?: number
+  threadId?: number
+  userMessageId?: number
+  assistantMessageId?: number
+  retrievalTraceId?: number
 }
 
 export async function sentinelQuery(
@@ -37,12 +44,18 @@ export async function sentinelQuery(
     userInputForQualityGate?: string
     enableQualityGate?: boolean
     qualityGateProfile?: "strict" | "balanced" | "lenient"
+    threadId?: number
+    persistConversation?: boolean
   }
 ): Promise<PipelineResult> {
   const providers: QueryProvider[] = []
   const providerErrors: string[] = []
   let brainHits = 0
   const brainContext: string[] = []
+  const selectedChunksForTrace: Record<string, unknown>[] = []
+  let totalCandidates = 0
+  let avgSimilarity: number | undefined
+  let retrievalLatencyMs: number | undefined
   const neonReady = isNeonConfigured()
   const geminiReadyRaw = isGeminiConfigured()
   const copilotReadyRaw = isCopilotConfigured()
@@ -50,6 +63,95 @@ export async function sentinelQuery(
   const backendMode = envConfig.useBackendLlm
   const geminiReady = backendMode ? false : geminiReadyRaw
   const copilotReady = backendMode ? false : copilotReadyRaw
+  const threadId = options?.threadId
+  const shouldPersistConversation =
+    neonReady && Boolean(threadId) && (options?.persistConversation ?? true)
+  let userMessageId: number | undefined
+
+  const ensureUserMessage = async (): Promise<number | undefined> => {
+    if (!shouldPersistConversation || !threadId) return undefined
+    if (userMessageId) return userMessageId
+
+    try {
+      const userMsg = await appendChatMessage({
+        thread_id: threadId,
+        role: "user",
+        content: queryText,
+        metadata: {
+          module: options?.module ?? null,
+        },
+      })
+      userMessageId = userMsg.id
+      return userMessageId
+    } catch {
+      return undefined
+    }
+  }
+
+  const finalizeResult = async (
+    result: Omit<PipelineResult, "threadId" | "userMessageId" | "assistantMessageId" | "retrievalTraceId">,
+    generationLatency?: number
+  ): Promise<PipelineResult> => {
+    const base: PipelineResult = {
+      ...result,
+      threadId,
+    }
+
+    if (!shouldPersistConversation || !threadId) return base
+
+    let assistantMessageId: number | undefined
+    let retrievalTraceId: number | undefined
+
+    try {
+      const ensuredUserId = await ensureUserMessage()
+      if (ensuredUserId) {
+        base.userMessageId = ensuredUserId
+        await autoTitleThreadFromFirstMessage(threadId, queryText)
+      }
+
+      const assistantMsg = await appendChatMessage({
+        thread_id: threadId,
+        role: "assistant",
+        content: result.response,
+        provider: result.providers[result.providers.length - 1],
+        model_used: result.model,
+        providers_used: result.providers,
+        brain_hits: result.brainHits,
+        metadata: {
+          cached: result.cached,
+          status: result.status ?? "ok",
+          qualityScore: result.qualityScore ?? null,
+          clarificationQuestions: result.clarificationQuestions ?? [],
+          module: options?.module ?? null,
+        },
+      })
+      assistantMessageId = assistantMsg.id
+
+      const trace = await storeRetrievalTrace({
+        thread_id: threadId,
+        message_id: assistantMessageId,
+        query_text: queryText,
+        module: options?.module,
+        provider: result.providers[result.providers.length - 1],
+        model_used: result.model,
+        selected_chunks: selectedChunksForTrace,
+        total_candidates: totalCandidates,
+        avg_similarity: avgSimilarity,
+        retrieval_latency_ms: retrievalLatencyMs,
+        generation_latency_ms: generationLatency,
+      })
+      retrievalTraceId = trace.id
+    } catch {
+      // Conversation persistence and trace storage are best-effort.
+    }
+
+    return {
+      ...base,
+      userMessageId: base.userMessageId,
+      assistantMessageId,
+      retrievalTraceId,
+    }
+  }
 
   // Step 0: Input quality gate (default enabled for NGO module)
   const shouldRunQualityGate =
@@ -58,7 +160,7 @@ export async function sentinelQuery(
     const candidateInput = options?.userInputForQualityGate?.trim() || queryText.trim()
     const quality = validatePromptQuality(candidateInput, options?.qualityGateProfile ?? "balanced")
     if (!quality.accepted) {
-      return {
+      return finalizeResult({
         response: quality.message,
         providers: [],
         brainHits: 0,
@@ -68,7 +170,7 @@ export async function sentinelQuery(
         status: "needs_clarification",
         clarificationQuestions: quality.questions,
         qualityScore: quality.score,
-      }
+      })
     }
   }
 
@@ -77,6 +179,7 @@ export async function sentinelQuery(
     try {
       const cached = await getCachedGeneration(queryText)
       if (cached) {
+        const cacheStart = Date.now()
         providers.push("cache")
         const responseText =
           typeof cached.response_json === "string"
@@ -84,7 +187,7 @@ export async function sentinelQuery(
             : JSON.stringify(cached.response_json)
 
         void safeLogQuery(queryText, cached.response_json, ["cache"], 0, options)
-        return {
+        return finalizeResult({
           response: responseText,
           providers,
           brainHits: 0,
@@ -92,7 +195,7 @@ export async function sentinelQuery(
           cached: true,
           model: cached.model_used ?? undefined,
           status: "ok",
-        }
+        }, Date.now() - cacheStart)
       }
     } catch (err) {
       console.warn("Cache lookup failed:", err)
@@ -102,16 +205,29 @@ export async function sentinelQuery(
   // Step 2: Search Sentinel Brain for relevant knowledge
   let brainContextStr = ""
   if (neonReady && geminiReady) {
+    const retrievalStart = Date.now()
     try {
       const queryEmbedding = await geminiEmbed(queryText)
       const brainResults = await searchBrain(queryEmbedding, 5, options?.sector)
+      totalCandidates = brainResults.length
       const relevant = brainResults.filter((r) => r.similarity > 0.65)
 
       if (relevant.length > 0) {
         providers.push("brain")
         brainHits = relevant.length
+        avgSimilarity = Number(
+          (relevant.reduce((sum, r) => sum + r.similarity, 0) / relevant.length).toFixed(4)
+        )
         for (const entry of relevant) {
           brainContext.push(entry.content)
+          selectedChunksForTrace.push({
+            id: entry.id,
+            similarity: entry.similarity,
+            sector: entry.sector,
+            document_id: entry.document_id,
+            chunk_index: entry.chunk_index,
+            preview: entry.content.slice(0, 300),
+          })
         }
         brainContextStr = brainContext
           .map((c, i) => `[Knowledge ${i + 1}]: ${c}`)
@@ -119,12 +235,15 @@ export async function sentinelQuery(
       }
     } catch (err) {
       console.warn("Brain search failed:", err)
+    } finally {
+      retrievalLatencyMs = Date.now() - retrievalStart
     }
   }
 
   // Step 3: Generate
   if (backendMode) {
     try {
+      const generationStart = Date.now()
       const backendPrompt = brainContextStr
         ? `Use the following knowledge base context to inform your response. If the context is relevant, incorporate it. If not, rely on your own knowledge.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END KNOWLEDGE BASE ---\n\nUser query: ${queryText}`
         : queryText
@@ -140,7 +259,7 @@ export async function sentinelQuery(
         void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "backend-llm" })
       }
 
-      return {
+      return finalizeResult({
         response,
         providers,
         brainHits,
@@ -148,7 +267,7 @@ export async function sentinelQuery(
         cached: false,
         model: "backend-llm",
         status: "ok",
-      }
+      }, Date.now() - generationStart)
     } catch (err) {
       console.warn("Backend LLM generation failed:", err)
       providerErrors.push(`backend: ${err instanceof Error ? err.message : String(err)}`)
@@ -158,6 +277,7 @@ export async function sentinelQuery(
   if (options?.useConsensus) {
     if (geminiReady || copilotReady) {
       try {
+        const generationStart = Date.now()
         const augmentedPrompt = brainContextStr
           ? `Use the following knowledge base context to inform your response. If the context is relevant, incorporate it. If not, rely on your own knowledge.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END KNOWLEDGE BASE ---\n\nUser query: ${queryText}`
           : queryText
@@ -217,7 +337,7 @@ Create a unified, humanized response that intelligently combines the best of all
             void safeCacheAndLog(queryText, synthesizedResponse, providers, brainHits, { ...options, model: modelTag })
           }
 
-          return {
+          return finalizeResult({
             response: synthesizedResponse,
             providers,
             brainHits,
@@ -225,7 +345,7 @@ Create a unified, humanized response that intelligently combines the best of all
             cached: false,
             model: modelTag,
             status: "ok",
-          }
+          }, Date.now() - generationStart)
         }
       } catch (err) {
         console.warn("Consensus generation failed, falling through:", err)
@@ -240,6 +360,7 @@ Create a unified, humanized response that intelligently combines the best of all
   // Step 3a-pre: Copilot first if preferred (code/technical queries)
   if (useCopilotFirst) {
     try {
+      const generationStart = Date.now()
       const augmentedPrompt = brainContextStr
         ? `Use the following knowledge base context to inform your response.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END ---\n\nQuery: ${queryText}`
         : queryText
@@ -254,7 +375,7 @@ Create a unified, humanized response that intelligently combines the best of all
         void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "copilot-gpt-4o" })
       }
 
-      return {
+      return finalizeResult({
         response,
         providers,
         brainHits,
@@ -262,7 +383,7 @@ Create a unified, humanized response that intelligently combines the best of all
         cached: false,
         model: "copilot-gpt-4o",
         status: "ok",
-      }
+      }, Date.now() - generationStart)
     } catch (err) {
       console.warn("Copilot (preferred) generation failed, falling through:", err)
       providerErrors.push(`copilot(preferred): ${err instanceof Error ? err.message : String(err)}`)
@@ -272,6 +393,7 @@ Create a unified, humanized response that intelligently combines the best of all
   // Step 3a: Generate with Gemini (primary)
   if (geminiReady) {
     try {
+      const generationStart = Date.now()
       const augmentedPrompt = brainContextStr
         ? `Use the following knowledge base context to inform your response. If the context is relevant, incorporate it. If not, rely on your own knowledge.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END KNOWLEDGE BASE ---\n\nUser query: ${queryText}`
         : queryText
@@ -287,7 +409,7 @@ Create a unified, humanized response that intelligently combines the best of all
         void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "gemini-2.5-flash" })
       }
 
-      return {
+      return finalizeResult({
         response,
         providers,
         brainHits,
@@ -295,7 +417,7 @@ Create a unified, humanized response that intelligently combines the best of all
         cached: false,
         model: "gemini-2.5-flash",
         status: "ok",
-      }
+      }, Date.now() - generationStart)
     } catch (err) {
       console.warn("Gemini generation failed:", err)
       providerErrors.push(`gemini: ${err instanceof Error ? err.message : String(err)}`)
@@ -305,6 +427,7 @@ Create a unified, humanized response that intelligently combines the best of all
   // Step 3b: Copilot as secondary or code-specific provider
   if (copilotReady) {
     try {
+      const generationStart = Date.now()
       const augmentedPrompt = brainContextStr
         ? `Use the following knowledge base context to inform your response.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END ---\n\nQuery: ${queryText}`
         : queryText
@@ -319,7 +442,7 @@ Create a unified, humanized response that intelligently combines the best of all
         void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "copilot-gpt-4o" })
       }
 
-      return {
+      return finalizeResult({
         response,
         providers,
         brainHits,
@@ -327,7 +450,7 @@ Create a unified, humanized response that intelligently combines the best of all
         cached: false,
         model: "copilot-gpt-4o",
         status: "ok",
-      }
+      }, Date.now() - generationStart)
     } catch (err) {
       console.warn("Copilot generation failed:", err)
       providerErrors.push(`copilot: ${err instanceof Error ? err.message : String(err)}`)
@@ -337,6 +460,7 @@ Create a unified, humanized response that intelligently combines the best of all
   // Step 4: Fallback to Spark LLM
   if (options?.sparkFallback) {
     try {
+      const generationStart = Date.now()
       const response = await options.sparkFallback()
       if (!response || response.trim().length === 0) {
         throw new Error("Spark returned empty response")
@@ -347,7 +471,7 @@ Create a unified, humanized response that intelligently combines the best of all
         void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "spark-llm" })
       }
 
-      return {
+      return finalizeResult({
         response,
         providers,
         brainHits,
@@ -355,7 +479,7 @@ Create a unified, humanized response that intelligently combines the best of all
         cached: false,
         model: "spark-llm",
         status: "ok",
-      }
+      }, Date.now() - generationStart)
     } catch (err) {
       console.warn("Spark fallback failed:", err)
       providerErrors.push(`spark: ${err instanceof Error ? err.message : String(err)}`)
@@ -366,14 +490,14 @@ Create a unified, humanized response that intelligently combines the best of all
 
   // Step 5: Last resort — return brain context directly if available
   if (brainContext.length > 0) {
-    return {
+    return finalizeResult({
       response: `Based on available knowledge:\n\n${brainContext.join("\n\n")}`,
       providers: ["brain"],
       brainHits,
       brainContext,
       cached: false,
       status: "ok",
-    }
+    })
   }
 
   const configHint = [

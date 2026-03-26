@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,6 +38,7 @@ import { addProCredits, consumeProCredits, consumeReviewCredit, getFeatureEntitl
 import { UpgradePaywall } from "@/components/UpgradePaywall"
 import type { SubscriptionPlan } from "@/types"
 import { getCurrentMonthKey, getExportPlanConfig } from "@/lib/strategy-governance"
+import { estimateHumanizerMeters, getHumanizerScoringModeLabel, scoreHumanizerMeters } from "@/lib/humanizer-metrics"
 import mammoth from "mammoth"
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
@@ -56,6 +57,36 @@ type HumanizerWorkspaceEntry = {
   wordCount: number
   creditsUsed: number
   timestamp: number
+}
+
+type HumanizerBehaviorSettings = {
+  tone: "neutral" | "friendly" | "professional" | "persuasive"
+  formality: "casual" | "balanced" | "formal"
+  readabilityGrade: number
+  humanVariance: "low" | "medium" | "high"
+  riskMode: "safe" | "balanced" | "aggressive"
+}
+
+type HumanizerDraft = {
+  id: string
+  userId: string
+  sourceText: string
+  settings: HumanizerBehaviorSettings
+  lastOutput: string
+  aiScoreBefore: number
+  aiScoreAfter: number
+  similarityBefore: number
+  similarityAfter: number
+  updatedAt: number
+  isFinal: boolean
+}
+
+const DEFAULT_HUMANIZER_SETTINGS: HumanizerBehaviorSettings = {
+  tone: "neutral",
+  formality: "balanced",
+  readabilityGrade: 8,
+  humanVariance: "medium",
+  riskMode: "balanced",
 }
 
 interface PlagiarismCheckerProps {
@@ -92,6 +123,14 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
   const [isHumanizing, setIsHumanizing] = useState(false)
   const [result, setResult] = useState<PlagiarismResult | null>(null)
   const [humanizedResult, setHumanizedResult] = useState<HumanizedResult | null>(null)
+  const [humanizerSettings, setHumanizerSettings] = useState<HumanizerBehaviorSettings>(DEFAULT_HUMANIZER_SETTINGS)
+  const [humanizerScores, setHumanizerScores] = useState<{
+    aiScoreBefore: number
+    aiScoreAfter: number | null
+    similarityBefore: number
+    similarityAfter: number | null
+  } | null>(null)
+  const [humanizerAnalyzed, setHumanizerAnalyzed] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -141,6 +180,10 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
   const [humanizerWorkspace, setHumanizerWorkspace] = useSafeKV<HumanizerWorkspaceEntry[]>(
     `humanizer-workspace-${userId}`,
     []
+  )
+  const [humanizerDraft, setHumanizerDraft] = useSafeKV<HumanizerDraft | null>(
+    `humanizer-draft-${userId}`,
+    null
   )
   const [monthlyReviewExportCount, setMonthlyReviewExportCount] = useSafeKV<number>(
     `${getCurrentMonthKey("review-exports")}-${userId}`,
@@ -198,6 +241,75 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
   const normalizeExtractedText = (rawText: string): string => {
     return normalizeDocumentText(rawText)
   }
+
+  useEffect(() => {
+    if (mode !== "humanizer") {
+      return
+    }
+
+    if (!humanizerDraft || humanizerDraft.isFinal) {
+      return
+    }
+
+    if (humanizerDraft.sourceText && !text.trim()) {
+      setText(humanizerDraft.sourceText)
+    }
+
+    if (humanizerDraft.settings) {
+      setHumanizerSettings(humanizerDraft.settings)
+    }
+
+    if (humanizerDraft.lastOutput) {
+      setHumanizedResult({
+        originalText: humanizerDraft.sourceText,
+        humanizedText: humanizerDraft.lastOutput,
+        changes: [],
+        timestamp: humanizerDraft.updatedAt,
+      })
+    }
+
+    setHumanizerScores({
+      aiScoreBefore: humanizerDraft.aiScoreBefore,
+      aiScoreAfter: humanizerDraft.aiScoreAfter || null,
+      similarityBefore: humanizerDraft.similarityBefore,
+      similarityAfter: humanizerDraft.similarityAfter || null,
+    })
+  }, [humanizerDraft, mode, text])
+
+  useEffect(() => {
+    if (mode !== "humanizer") {
+      return
+    }
+
+    const sourceText = text.trim()
+    if (!sourceText) {
+      return
+    }
+
+    const beforeMeters = estimateHumanizerMeters(sourceText)
+    const afterMeters = humanizedResult ? estimateHumanizerMeters(humanizedResult.humanizedText) : null
+
+    setHumanizerDraft((current) => ({
+      id: current?.id || `draft-${Date.now()}`,
+      userId,
+      sourceText,
+      settings: humanizerSettings,
+      lastOutput: humanizedResult?.humanizedText || current?.lastOutput || "",
+      aiScoreBefore: beforeMeters.aiLikelihood,
+      aiScoreAfter: afterMeters?.aiLikelihood || current?.aiScoreAfter || 0,
+      similarityBefore: beforeMeters.similarityRisk,
+      similarityAfter: afterMeters?.similarityRisk || current?.similarityAfter || 0,
+      updatedAt: Date.now(),
+      isFinal: false,
+    }))
+  }, [
+    mode,
+    text,
+    humanizedResult,
+    humanizerSettings,
+    setHumanizerDraft,
+    userId,
+  ])
 
   const applyExtractedText = (rawText: string, sourceLabel: string): boolean => {
     const normalized = normalizeExtractedText(rawText)
@@ -1108,6 +1220,11 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
       return
     }
 
+    if (!humanizerAnalyzed) {
+      toast.info("Run Analyze first to inspect pre-check meters before humanizing.")
+      return
+    }
+
     setIsHumanizing(true)
 
     try {
@@ -1121,6 +1238,13 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
 
 Original text:
 ${text}
+
+Behavior controls:
+- Tone: ${humanizerSettings.tone}
+- Formality: ${humanizerSettings.formality}
+- Readability target grade: ${humanizerSettings.readabilityGrade}
+- Human variance level: ${humanizerSettings.humanVariance}
+- Risk mode: ${humanizerSettings.riskMode}
 
 Instructions:
 - Remove robotic or overly formal language
@@ -1214,6 +1338,15 @@ Return ONLY a valid JSON object:
       }
 
       setHumanizedResult(humanized)
+
+      const beforeMeters = estimateHumanizerMeters(text)
+      const afterMeters = estimateHumanizerMeters(humanized.humanizedText)
+      setHumanizerScores({
+        aiScoreBefore: beforeMeters.aiLikelihood,
+        aiScoreAfter: afterMeters.aiLikelihood,
+        similarityBefore: beforeMeters.similarityRisk,
+        similarityAfter: afterMeters.similarityRisk,
+      })
       toast.success(`Text humanized successfully! ${remainingCredits} Pro credits left.`)
     } catch (error) {
       console.error("Humanization error:", error)
@@ -1317,6 +1450,69 @@ Return ONLY a valid JSON object:
     return <XCircle size={20} className="text-red-600" weight="fill" />
   }
 
+  const getRiskColorClass = (score: number) => {
+    if (score <= 35) return "text-green-600"
+    if (score <= 60) return "text-yellow-600"
+    return "text-red-600"
+  }
+
+  const runHumanizerAnalyze = async () => {
+    const value = text.trim()
+    if (!value) {
+      toast.error("Please add text before running analyze")
+      return
+    }
+
+    const beforeMeters = await scoreHumanizerMeters(value)
+    const afterMeters = humanizedResult ? await scoreHumanizerMeters(humanizedResult.humanizedText) : null
+    setHumanizerScores({
+      aiScoreBefore: beforeMeters.aiLikelihood,
+      aiScoreAfter: afterMeters?.aiLikelihood ?? null,
+      similarityBefore: beforeMeters.similarityRisk,
+      similarityAfter: afterMeters?.similarityRisk ?? null,
+    })
+    setHumanizerAnalyzed(true)
+    const scoringMode = getHumanizerScoringModeLabel()
+    toast.success(`Humanizer analysis complete (${scoringMode})`)
+  }
+
+  const restoreHumanizerDraft = () => {
+    if (!humanizerDraft) {
+      toast.info("No draft available to restore")
+      return
+    }
+
+    setText(humanizerDraft.sourceText || "")
+    setHumanizerSettings(humanizerDraft.settings || DEFAULT_HUMANIZER_SETTINGS)
+    setHumanizerScores({
+      aiScoreBefore: humanizerDraft.aiScoreBefore,
+      aiScoreAfter: humanizerDraft.aiScoreAfter || null,
+      similarityBefore: humanizerDraft.similarityBefore,
+      similarityAfter: humanizerDraft.similarityAfter || null,
+    })
+
+    if (humanizerDraft.lastOutput) {
+      setHumanizedResult({
+        originalText: humanizerDraft.sourceText,
+        humanizedText: humanizerDraft.lastOutput,
+        changes: [],
+        timestamp: humanizerDraft.updatedAt,
+      })
+    }
+
+    setHumanizerAnalyzed(true)
+    toast.success("Draft restored")
+  }
+
+  const resetHumanizerDraft = () => {
+    setHumanizerDraft(null)
+    setHumanizerSettings(DEFAULT_HUMANIZER_SETTINGS)
+    setHumanizerScores(null)
+    setHumanizedResult(null)
+    setHumanizerAnalyzed(false)
+    toast.success("Draft reset")
+  }
+
   const requiresAccess = mode === "humanizer" ? !entitlements.canUseHumanizer : !entitlements.canAccessReview
 
   // Gate: show paywall for users without access (admin bypasses)
@@ -1348,6 +1544,29 @@ Return ONLY a valid JSON object:
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {mode === "humanizer" && humanizerDraft && (
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={humanizerDraft.isFinal ? "default" : "secondary"}>
+                    {humanizerDraft.isFinal ? "Final" : "Draft"}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground">
+                    Last saved: {new Date(humanizerDraft.updatedAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" className="h-7" onClick={restoreHumanizerDraft}>
+                    Restore
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7" onClick={resetHumanizerDraft}>
+                    Reset
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <Button
               variant={showUpload ? "default" : "outline"}
@@ -1490,6 +1709,19 @@ Return ONLY a valid JSON object:
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {mode === "humanizer" && (
+                  <Button
+                    onClick={runHumanizerAnalyze}
+                    disabled={!text.trim() || isHumanizing || isChecking}
+                    size="sm"
+                    variant="secondary"
+                    className="gap-2"
+                  >
+                    <Robot size={16} weight="duotone" />
+                    Analyze
+                  </Button>
+                )}
+
                 <Button
                   onClick={humanizeText}
                   disabled={!text.trim() || isHumanizing || isChecking || (entitlements.isPaidPlan && proCredits < estimateHumanizerCredits(countWords(text)))}
@@ -1548,6 +1780,99 @@ Return ONLY a valid JSON object:
                 )}
               </div>
             </div>
+
+            {mode === "humanizer" && (
+              <div className="mt-4 rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Humanizer Controls
+                  </p>
+                  <Badge variant="outline">Two-stage flow: Analyze -&gt; Humanize</Badge>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2">
+                  <select
+                    value={humanizerSettings.tone}
+                    onChange={(e) => setHumanizerSettings((current) => ({ ...current, tone: e.target.value as HumanizerBehaviorSettings["tone"] }))}
+                    className="h-9 rounded border border-input bg-background px-2 text-xs"
+                  >
+                    <option value="neutral">Tone: Neutral</option>
+                    <option value="friendly">Tone: Friendly</option>
+                    <option value="professional">Tone: Professional</option>
+                    <option value="persuasive">Tone: Persuasive</option>
+                  </select>
+
+                  <select
+                    value={humanizerSettings.formality}
+                    onChange={(e) => setHumanizerSettings((current) => ({ ...current, formality: e.target.value as HumanizerBehaviorSettings["formality"] }))}
+                    className="h-9 rounded border border-input bg-background px-2 text-xs"
+                  >
+                    <option value="casual">Formality: Casual</option>
+                    <option value="balanced">Formality: Balanced</option>
+                    <option value="formal">Formality: Formal</option>
+                  </select>
+
+                  <select
+                    value={humanizerSettings.readabilityGrade}
+                    onChange={(e) => setHumanizerSettings((current) => ({ ...current, readabilityGrade: Number(e.target.value) }))}
+                    className="h-9 rounded border border-input bg-background px-2 text-xs"
+                  >
+                    <option value={6}>Readability: Grade 6</option>
+                    <option value={8}>Readability: Grade 8</option>
+                    <option value={10}>Readability: Grade 10</option>
+                    <option value={12}>Readability: Grade 12</option>
+                  </select>
+
+                  <select
+                    value={humanizerSettings.humanVariance}
+                    onChange={(e) => setHumanizerSettings((current) => ({ ...current, humanVariance: e.target.value as HumanizerBehaviorSettings["humanVariance"] }))}
+                    className="h-9 rounded border border-input bg-background px-2 text-xs"
+                  >
+                    <option value="low">Variance: Low</option>
+                    <option value="medium">Variance: Medium</option>
+                    <option value="high">Variance: High</option>
+                  </select>
+
+                  <select
+                    value={humanizerSettings.riskMode}
+                    onChange={(e) => setHumanizerSettings((current) => ({ ...current, riskMode: e.target.value as HumanizerBehaviorSettings["riskMode"] }))}
+                    className="h-9 rounded border border-input bg-background px-2 text-xs"
+                  >
+                    <option value="safe">Risk: Safe</option>
+                    <option value="balanced">Risk: Balanced</option>
+                    <option value="aggressive">Risk: Aggressive</option>
+                  </select>
+                </div>
+
+                {humanizerScores && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-border/50 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground">AI Likelihood Meter</p>
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">Before: <span className={getRiskColorClass(humanizerScores.aiScoreBefore)}>{humanizerScores.aiScoreBefore}%</span></p>
+                        <Progress value={humanizerScores.aiScoreBefore} className="h-2" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">After: <span className={getRiskColorClass(humanizerScores.aiScoreAfter ?? humanizerScores.aiScoreBefore)}>{humanizerScores.aiScoreAfter ?? "--"}{humanizerScores.aiScoreAfter !== null ? "%" : ""}</span></p>
+                        <Progress value={humanizerScores.aiScoreAfter ?? 0} className="h-2" />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border/50 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground">Similarity Meter</p>
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">Before: <span className={getRiskColorClass(humanizerScores.similarityBefore)}>{humanizerScores.similarityBefore}%</span></p>
+                        <Progress value={humanizerScores.similarityBefore} className="h-2" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">After: <span className={getRiskColorClass(humanizerScores.similarityAfter ?? humanizerScores.similarityBefore)}>{humanizerScores.similarityAfter ?? "--"}{humanizerScores.similarityAfter !== null ? "%" : ""}</span></p>
+                        <Progress value={humanizerScores.similarityAfter ?? 0} className="h-2" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {mode !== "humanizer" && <div className="mt-4 p-3 border border-border rounded-lg space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Scoring Filters</p>
@@ -2111,6 +2436,7 @@ Return ONLY a valid JSON object:
                 <Button
                   onClick={() => {
                     setText(humanizedResult.humanizedText)
+                    setHumanizerDraft((current) => current ? { ...current, isFinal: true, updatedAt: Date.now() } : current)
                     setHumanizedResult(null)
                     toast.success("Humanized text copied to editor")
                   }}

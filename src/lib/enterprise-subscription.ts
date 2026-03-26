@@ -1,4 +1,6 @@
 import { UserProfile, NGOAccessLevel } from "@/types"
+import { ensureUserSubscription, getDefaultSubscription } from "@/lib/subscription"
+import { getSafeKVClient } from "@/lib/spark-shim"
 
 /**
  * Enterprise Subscription & Team Access Management
@@ -13,8 +15,22 @@ export interface EnterpriseTeamMember {
   fullName: string
   role: EnterpriseRole
   ngoAccessLevel?: NGOAccessLevel
+  moduleAccess?: Array<"strategy" | "ideas" | "review" | "humanizer">
+  individualProLicense?: boolean
   addedAt: number
   lastActiveAt: number
+}
+
+export interface EnterpriseCreditUsageEntry {
+  id: string
+  organizationId: string
+  actorUserId: string
+  actorEmail: string
+  chargedToUserId: string
+  module: "review" | "humanizer"
+  credits: number
+  reason: string
+  createdAt: number
 }
 
 export interface EnterpriseSubscription {
@@ -39,7 +55,83 @@ export interface EnterpriseSubscription {
 }
 
 const ENTERPRISE_SUBSCRIPTIONS_KEY = "enterprise-subscriptions"
-const ENTERPRISE_TEAM_KEY = "enterprise-team"
+const USERS_STORAGE_KEY = "platform-users"
+const USER_CREDENTIALS_KEY = "user-credentials"
+const ENTERPRISE_CREDIT_USAGE_KEY = "enterprise-credit-usage"
+
+interface StoredCredential {
+  email: string
+  passwordHash: string
+  userId: string
+}
+
+async function simpleHash(text: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const salted = `sentinel:${text}:v2`
+  const data = encoder.encode(salted)
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("")
+}
+
+function planFromTier(tier: EnterpriseSubscription["tier"]): "basic" | "pro" | "team" | "enterprise" {
+  if (tier === "ENTERPRISE") return "enterprise"
+  if (tier === "TEAMS") return "team"
+  if (tier === "PRO") return "pro"
+  return "basic"
+}
+
+function planRank(plan: "basic" | "pro" | "team" | "enterprise"): number {
+  if (plan === "enterprise") return 4
+  if (plan === "team") return 3
+  if (plan === "pro") return 2
+  return 1
+}
+
+function maxPlan(
+  left: "basic" | "pro" | "team" | "enterprise",
+  right: "basic" | "pro" | "team" | "enterprise"
+): "basic" | "pro" | "team" | "enterprise" {
+  return planRank(left) >= planRank(right) ? left : right
+}
+
+async function syncMemberSubscription(
+  userId: string,
+  subscription: EnterpriseSubscription,
+  ngoAccessLevel?: NGOAccessLevel,
+  role?: EnterpriseRole,
+  moduleAccess?: Array<"strategy" | "ideas" | "review" | "humanizer">,
+  individualProLicense?: boolean
+): Promise<void> {
+  const kv = getSafeKVClient()
+  const users = (await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY)) || {}
+  const existingUser = users[userId]
+  if (!existingUser) return
+
+  const safeUser = ensureUserSubscription(existingUser)
+  const existingSub = safeUser.subscription || getDefaultSubscription()
+  const targetPlan = planFromTier(subscription.tier)
+  const nextPlan = maxPlan(existingSub.plan, targetPlan)
+
+  users[userId] = {
+    ...safeUser,
+    subscription: {
+      ...existingSub,
+      plan: nextPlan,
+      status: "active",
+        hasNgoModuleAccess: subscription.features.canAccessNGOSaaS && !!ngoAccessLevel,
+        ngoAccessLevel: subscription.features.canAccessNGOSaaS ? ngoAccessLevel : undefined,
+        ngoTeamAdminId: subscription.features.canAccessNGOSaaS && ngoAccessLevel ? subscription.ownerId : undefined,
+        enterpriseOrganizationId: subscription.organizationId,
+        enterpriseRole: role,
+        enterpriseModuleAccess: moduleAccess,
+        individualProLicense: Boolean(individualProLicense),
+        updatedAt: Date.now(),
+      },
+    }
+
+  await kv.set(USERS_STORAGE_KEY, users)
+}
 
 /**
  * Get enterprise subscription for an organization
@@ -86,6 +178,7 @@ export async function saveEnterpriseSubscription(sub: EnterpriseSubscription): P
  * Check if user has enterprise access
  */
 export function hasEnterpriseAccess(user: UserProfile, organizationId?: string): boolean {
+  void organizationId
   if (user.role === "admin") return true
   const sub = user.subscription
   if (!sub) return false
@@ -122,8 +215,9 @@ export async function addEnterpriseTeamMember(
   email: string,
   fullName: string,
   role: EnterpriseRole,
+  password?: string,
   ngoAccessLevel?: NGOAccessLevel
-): Promise<{ success: boolean; member?: EnterpriseTeamMember; error?: string }> {
+): Promise<{ success: boolean; member?: EnterpriseTeamMember; error?: string; warning?: string }> {
   try {
     const sub = await getEnterpriseSubscription(organizationId)
     if (!sub) return { success: false, error: "Enterprise subscription not found" }
@@ -137,21 +231,102 @@ export async function addEnterpriseTeamMember(
       return { success: false, error: "User is already a team member" }
     }
 
+    const kv = getSafeKVClient()
+    const users = (await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY)) || {}
+    const credentials = (await kv.get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY)) || {}
+
+    const existingByCredential = credentials[normalizedEmail]
+    const existingByEmail = Object.values(users).find((u) => u.email.toLowerCase() === normalizedEmail)
+
+    let userId = existingByCredential?.userId || existingByEmail?.id
+    let warning: string | undefined
+
+    if (!userId) {
+      if (!password || password.trim().length < 8) {
+        return { success: false, error: "Password (min 8 chars) is required for new members" }
+      }
+
+      userId = `ent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      const passwordHash = await simpleHash(password.trim())
+      const targetPlan = planFromTier(sub.tier)
+
+      users[userId] = {
+        id: userId,
+        email: normalizedEmail,
+        fullName,
+        role: "client",
+        subscription: {
+          ...getDefaultSubscription(),
+          plan: targetPlan,
+          status: "active",
+          hasNgoModuleAccess: sub.features.canAccessNGOSaaS && !!ngoAccessLevel,
+          ngoAccessLevel: sub.features.canAccessNGOSaaS ? ngoAccessLevel : undefined,
+          ngoTeamAdminId: sub.features.canAccessNGOSaaS && ngoAccessLevel ? sub.ownerId : undefined,
+          enterpriseOrganizationId: sub.organizationId,
+          enterpriseRole: role,
+          enterpriseModuleAccess: ["strategy", "ideas"],
+          individualProLicense: false,
+          updatedAt: Date.now(),
+        },
+        createdAt: Date.now(),
+        lastLoginAt: Date.now(),
+      }
+
+      credentials[normalizedEmail] = {
+        email: normalizedEmail,
+        passwordHash,
+        userId,
+      }
+
+      await kv.set(USERS_STORAGE_KEY, users)
+      await kv.set(USER_CREDENTIALS_KEY, credentials)
+    } else {
+      const existing = users[userId]
+      if (existing) {
+        await syncMemberSubscription(userId, sub, ngoAccessLevel)
+      }
+
+      if (!existingByCredential) {
+        if (password && password.trim().length >= 8) {
+          const passwordHash = await simpleHash(password.trim())
+          credentials[normalizedEmail] = {
+            email: normalizedEmail,
+            passwordHash,
+            userId,
+          }
+          await kv.set(USER_CREDENTIALS_KEY, credentials)
+        } else {
+          warning = "Member added, but no local password was set. Use Admin password reset or re-add with password."
+        }
+      }
+    }
+
     const member: EnterpriseTeamMember = {
-      id: `member_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: userId,
       email: normalizedEmail,
       fullName,
       role,
       ngoAccessLevel,
+      moduleAccess: ["strategy", "ideas"],
+      individualProLicense: false,
       addedAt: Date.now(),
       lastActiveAt: Date.now(),
     }
+
+    await syncMemberSubscription(
+      userId,
+      sub,
+      ngoAccessLevel,
+      role,
+      member.moduleAccess,
+      member.individualProLicense
+    )
 
     sub.teamMembers.push(member)
     sub.updatedAt = Date.now()
     await saveEnterpriseSubscription(sub)
 
-    return { success: true, member }
+    return { success: true, member, warning }
   } catch (error) {
     console.error("Failed to add team member:", error)
     return { success: false, error: "Failed to add team member" }
@@ -176,6 +351,14 @@ export async function updateTeamMemberRole(
     sub.teamMembers[memberIndex].role = newRole
     sub.updatedAt = Date.now()
     await saveEnterpriseSubscription(sub)
+    await syncMemberSubscription(
+      sub.teamMembers[memberIndex].id,
+      sub,
+      sub.teamMembers[memberIndex].ngoAccessLevel,
+      sub.teamMembers[memberIndex].role,
+      sub.teamMembers[memberIndex].moduleAccess,
+      sub.teamMembers[memberIndex].individualProLicense
+    )
 
     return { success: true }
   } catch (error) {
@@ -233,6 +416,14 @@ export async function grantNGOAccess(
     member.ngoAccessLevel = accessLevel
     sub.updatedAt = Date.now()
     await saveEnterpriseSubscription(sub)
+    await syncMemberSubscription(
+      member.id,
+      sub,
+      accessLevel,
+      member.role,
+      member.moduleAccess,
+      member.individualProLicense
+    )
 
     return { success: true }
   } catch (error) {
@@ -258,6 +449,14 @@ export async function revokeNGOAccess(
     member.ngoAccessLevel = undefined
     sub.updatedAt = Date.now()
     await saveEnterpriseSubscription(sub)
+    await syncMemberSubscription(
+      member.id,
+      sub,
+      undefined,
+      member.role,
+      member.moduleAccess,
+      member.individualProLicense
+    )
 
     return { success: true }
   } catch (error) {
@@ -308,4 +507,138 @@ export function getEnterpriseFeatures(tier: "BASIC" | "PRO" | "TEAMS" | "ENTERPR
         advancedAnalytics: true,
       }
   }
+}
+
+export async function reconcileEnterpriseMemberEntitlements(
+  organizationId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const sub = await getEnterpriseSubscription(organizationId)
+    if (!sub) return { success: false, error: "Enterprise subscription not found" }
+
+    for (const member of sub.teamMembers) {
+      await syncMemberSubscription(
+        member.id,
+        sub,
+        member.ngoAccessLevel,
+        member.role,
+        member.moduleAccess,
+        member.individualProLicense
+      )
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to reconcile enterprise member entitlements:", error)
+    return { success: false, error: "Failed to reconcile enterprise member entitlements" }
+  }
+}
+
+export async function updateEnterpriseMemberModuleAccess(
+  organizationId: string,
+  memberId: string,
+  moduleAccess: Array<"strategy" | "ideas" | "review" | "humanizer">
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const sub = await getEnterpriseSubscription(organizationId)
+    if (!sub) return { success: false, error: "Enterprise subscription not found" }
+
+    const member = sub.teamMembers.find((m) => m.id === memberId)
+    if (!member) return { success: false, error: "Team member not found" }
+
+    const nextModules = Array.from(new Set(moduleAccess))
+    if (!nextModules.includes("strategy") || !nextModules.includes("ideas")) {
+      return { success: false, error: "Strategy and Ideas modules are mandatory" }
+    }
+
+    member.moduleAccess = nextModules
+    sub.updatedAt = Date.now()
+    await saveEnterpriseSubscription(sub)
+    await syncMemberSubscription(
+      member.id,
+      sub,
+      member.ngoAccessLevel,
+      member.role,
+      member.moduleAccess,
+      member.individualProLicense
+    )
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to update member module access:", error)
+    return { success: false, error: "Failed to update module access" }
+  }
+}
+
+export async function updateEnterpriseMemberIndividualProLicense(
+  organizationId: string,
+  memberId: string,
+  enabled: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const sub = await getEnterpriseSubscription(organizationId)
+    if (!sub) return { success: false, error: "Enterprise subscription not found" }
+
+    const member = sub.teamMembers.find((m) => m.id === memberId)
+    if (!member) return { success: false, error: "Team member not found" }
+
+    member.individualProLicense = enabled
+    sub.updatedAt = Date.now()
+    await saveEnterpriseSubscription(sub)
+    await syncMemberSubscription(
+      member.id,
+      sub,
+      member.ngoAccessLevel,
+      member.role,
+      member.moduleAccess,
+      member.individualProLicense
+    )
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to update individual Pro license:", error)
+    return { success: false, error: "Failed to update individual Pro license" }
+  }
+}
+
+export async function logEnterpriseCreditUsage(input: {
+  organizationId: string
+  actorUserId: string
+  actorEmail: string
+  chargedToUserId: string
+  module: "review" | "humanizer"
+  credits: number
+  reason: string
+}): Promise<void> {
+  if (input.credits <= 0) return
+  const kv = getSafeKVClient()
+  const key = `${ENTERPRISE_CREDIT_USAGE_KEY}-${input.organizationId}`
+  const entries = (await kv.get<EnterpriseCreditUsageEntry[]>(key)) || []
+  entries.unshift({
+    id: `ecu_${crypto.randomUUID()}`,
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    actorEmail: input.actorEmail,
+    chargedToUserId: input.chargedToUserId,
+    module: input.module,
+    credits: input.credits,
+    reason: input.reason,
+    createdAt: Date.now(),
+  })
+  await kv.set(key, entries.slice(0, 2000))
+}
+
+export async function listEnterpriseCreditUsage(
+  organizationId: string,
+  userId?: string
+): Promise<EnterpriseCreditUsageEntry[]> {
+  const kv = getSafeKVClient()
+  const key = `${ENTERPRISE_CREDIT_USAGE_KEY}-${organizationId}`
+  const entries = (await kv.get<EnterpriseCreditUsageEntry[]>(key)) || []
+  if (!userId) return entries
+  return entries.filter((entry) => entry.actorUserId === userId || entry.chargedToUserId === userId)
+}
+
+export function resolveEnterpriseOwnerId(sub: EnterpriseSubscription, memberUser?: UserProfile): string {
+  if (sub.ownerId) return sub.ownerId
+  if (memberUser?.subscription?.ngoTeamAdminId) return memberUser.subscription.ngoTeamAdminId
+  return ""
 }

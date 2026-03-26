@@ -22,8 +22,12 @@ export const SENTINEL_CONFIG = {
   /** KV storage key namespace */
   kvNamespace: "sentinel",
 
-  /** Default commander password used for initial seed (override with VITE_SENTINEL_COMMANDER_PASS) */
-  commanderDefaultPass: (import.meta.env.VITE_SENTINEL_COMMANDER_PASS as string | undefined) ?? "Root@sentinel2026",
+  /**
+   * C2/C3 security fix: Removed commanderDefaultPass.
+   * Commander account provisioning is now backend-only.
+   * The password must be set via backend environment variables,
+   * never shipped in frontend code.
+   */
 } as const
 
 // ───────────────────────────── Upload Limits ─────────────────────
@@ -159,27 +163,39 @@ export const SENTINEL_MODULES = {
   NGO_SAAS: "ngo-saas",
   ADMIN_PORTAL: "admin-portal",
   TEAM_MANAGEMENT: "team-management",
+  RAG_CHAT: "rag-chat",
+  HUMANIZER: "humanizer",
 } as const
 
 export type SentinelModuleName =
   (typeof SENTINEL_MODULES)[keyof typeof SENTINEL_MODULES]
 
-/** Modules accessible by each subscription tier */
+/**
+ * Modules accessible by each subscription tier.
+ * This MUST stay in sync with TIER_MODULES in backend/policy.mjs.
+ * policy.mjs is the authoritative server-side gate; this is the
+ * client-side mirror used for UI gating and feature visibility.
+ */
 export const TIER_MODULE_ACCESS: Record<SubscriptionTier, SentinelModuleName[]> = {
   BASIC: [
     SENTINEL_MODULES.STRATEGY_GENERATION,
     SENTINEL_MODULES.ANALYTICS,
+    SENTINEL_MODULES.HUMANIZER,
   ],
   PRO: [
     SENTINEL_MODULES.STRATEGY_GENERATION,
     SENTINEL_MODULES.PLAGIARISM_CHECKER,
     SENTINEL_MODULES.ANALYTICS,
+    SENTINEL_MODULES.HUMANIZER,
+    SENTINEL_MODULES.RAG_CHAT,
   ],
   TEAMS: [
     SENTINEL_MODULES.STRATEGY_GENERATION,
     SENTINEL_MODULES.PLAGIARISM_CHECKER,
     SENTINEL_MODULES.ANALYTICS,
     SENTINEL_MODULES.TEAM_MANAGEMENT,
+    SENTINEL_MODULES.HUMANIZER,
+    SENTINEL_MODULES.RAG_CHAT,
   ],
   ENTERPRISE: [
     SENTINEL_MODULES.STRATEGY_GENERATION,
@@ -187,6 +203,8 @@ export const TIER_MODULE_ACCESS: Record<SubscriptionTier, SentinelModuleName[]> 
     SENTINEL_MODULES.ANALYTICS,
     SENTINEL_MODULES.TEAM_MANAGEMENT,
     SENTINEL_MODULES.NGO_SAAS,
+    SENTINEL_MODULES.HUMANIZER,
+    SENTINEL_MODULES.RAG_CHAT,
   ],
 }
 

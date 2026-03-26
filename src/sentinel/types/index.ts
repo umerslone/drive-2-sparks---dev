@@ -30,6 +30,12 @@ export type AuditAction =
   | "UPLOAD"
   | "ASSIGN_ROLE"
   | "ASSIGN_SUBSCRIPTION"
+  // Report workflow actions (Phase 2)
+  | "SUBMIT"
+  | "APPROVE"
+  | "SIGN"
+  | "PUBLISH"
+  | "REVERT"
 
 // ───────────────────────────── User ──────────────────────────────
 
@@ -167,6 +173,7 @@ export interface TeamAdmin {
 
 // ───────────────────────────── Audit ─────────────────────────────
 
+/** Individual audit log entry */
 export interface AuditLogEntry {
   id: string
   userId: string
@@ -177,6 +184,20 @@ export interface AuditLogEntry {
   ipAddress?: string
   timestamp: number
   success: boolean
+}
+
+// ───────────────────────────── Report State Transition ───────────
+
+/** Tracks each state transition in the report workflow */
+export interface ReportStateTransition {
+  id: string
+  reportId: string
+  fromStatus: string | null        // null for initial creation
+  toStatus: string
+  performedBy: string
+  performedAt: number
+  reason?: string
+  signatureHash?: string           // Present on APPROVED_SIGNED transitions
 }
 
 // ───────────────────────────── Auth ──────────────────────────────
@@ -204,4 +225,126 @@ export interface AccessCheckResult {
   allowed: boolean
   reason?: string
   requiredTier?: SubscriptionTier
+}
+
+// ──────────────── Org Module Subscription (Phase 3) ──────────────
+
+export type ModuleSubscriptionStatus =
+  | "ACTIVE"
+  | "TRIAL"
+  | "GRACE_PERIOD"
+  | "EXPIRED"
+  | "CANCELLED"
+  | "SUSPENDED"
+
+/**
+ * Per-tenant per-module subscription record.
+ * Authoritative source for whether an organization can access a module,
+ * how many seats they have, and when the subscription expires.
+ */
+export interface OrgModuleSubscription {
+  id: string
+  organizationId: string
+  moduleName: string
+  tier: SubscriptionTier
+  status: ModuleSubscriptionStatus
+  maxSeats: number
+  startsAt: number                    // Epoch ms
+  expiresAt: number | null            // null = no expiry
+  autoRenew: boolean
+  gracePeriodDays: number
+  provisionedBy: string
+  provisionedAt: number
+  cancelledAt: number | null
+  cancelledBy: string | null
+  metadata: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+
+/** Seat usage info for a module */
+export interface ModuleSeatInfo {
+  available: boolean
+  usedSeats: number
+  maxSeats: number
+  subscription?: OrgModuleSubscription
+  reason?: string
+}
+
+// ──────────────── Audit Log Query/Response (Phase 4) ─────────────
+
+/** Parameters for the advanced audit log query endpoint */
+export interface AuditLogQuery {
+  userId?: string
+  action?: AuditAction
+  resource?: string
+  resourceId?: string
+  success?: boolean
+  from?: number                       // Epoch ms
+  to?: number                         // Epoch ms
+  limit?: number                      // Max 500
+  offset?: number                     // Pagination offset
+}
+
+/** Response from the paginated audit log endpoint */
+export interface AuditLogPage {
+  logs: AuditLogEntry[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** Aggregation bucket (action or resource) */
+export interface AuditCountBucket {
+  action?: string
+  resource?: string
+  count: number
+}
+
+/** Daily count for timeline chart */
+export interface AuditDayCount {
+  day: string                         // ISO date "YYYY-MM-DD"
+  count: number
+}
+
+/** Audit log aggregation stats */
+export interface AuditStats {
+  byAction: AuditCountBucket[]
+  byResource: AuditCountBucket[]
+  byDay: AuditDayCount[]
+  totalEvents: number
+  failedEvents: number
+}
+
+// ──────────────── Admin System Stats (Phase 4) ───────────────────
+
+/** System-wide statistics for the admin console */
+export interface SystemStats {
+  users: {
+    total: number
+    active: number
+  }
+  organizations: {
+    total: number
+  }
+  subscriptions: {
+    total: number
+    active: number
+    expired: number
+  }
+  reports: {
+    total: number
+    drafts: number
+    submitted: number
+    approvedSigned: number
+    published: number
+  }
+  moduleSubscriptions: {
+    total: number
+    active: number
+    trial: number
+    expired: number
+    cancelled: number
+  }
+  recentLogins7d: number
 }

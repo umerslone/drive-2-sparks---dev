@@ -74,11 +74,16 @@ export function UserMenu({ user, brandTheme, onBrandThemeChange, onLogout, onPro
                 Role: {user.role === "admin" ? "Administrator" : "Client"}
               </p>
               <p className="text-xs leading-none text-muted-foreground">
-                Plan: {user.subscription?.plan === "pro" ? "Pro" : "Basic"}
+                Plan: {user.subscription?.plan ? user.subscription.plan.toUpperCase() : "BASIC"}
               </p>
-              {user.subscription?.plan === "pro" && (
+              {user.subscription?.plan && user.subscription.plan !== "basic" && (
                 <p className="text-xs leading-none text-muted-foreground">
                   Pro Credits: {user.subscription.proCredits}
+                </p>
+              )}
+              {user.subscription?.plan === "enterprise" && (
+                <p className="text-xs leading-none text-muted-foreground">
+                  Enterprise Modules: {(user.subscription.enterpriseModuleAccess || ["strategy", "ideas"]).join(", ")}
                 </p>
               )}
               {user.company && (

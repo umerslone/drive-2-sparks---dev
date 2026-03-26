@@ -59,7 +59,9 @@ async function callCopilot(prompt, model, token) {
 
   if (!response.ok) {
     const body = await response.text().catch(() => "")
-    throw new Error(`Copilot API ${response.status}: ${body}`)
+    // L3 fix: Log detail server-side only; throw generic message to caller
+    console.error(`[llm-service] Copilot API error ${response.status}:`, body)
+    throw new Error("LLM provider request failed")
   }
 
   const data = await response.json()
@@ -95,7 +97,9 @@ async function callGemini(prompt, model, apiKey) {
 
   if (!response.ok) {
     const body = await response.text().catch(() => "")
-    throw new Error(`Gemini API ${response.status}: ${body}`)
+    // L3 fix: Log detail server-side only; throw generic message to caller
+    console.error(`[llm-service] Gemini API error ${response.status}:`, body)
+    throw new Error("LLM provider request failed")
   }
 
   const data = await response.json()
@@ -118,12 +122,12 @@ export async function generateWithFallback({ prompt, model, providers }) {
   for (const provider of requestedProviders) {
     try {
       if (provider === "copilot") {
-        if (!copilotToken) throw new Error("Missing GITHUB_TOKEN or GITHUB_MODELS_TOKEN")
+        if (!copilotToken) throw new Error("Copilot provider not configured")
         return await callCopilot(prompt, model, copilotToken)
       }
 
       if (provider === "gemini") {
-        if (!geminiApiKey) throw new Error("Missing GEMINI_API_KEY")
+        if (!geminiApiKey) throw new Error("Gemini provider not configured")
         return await callGemini(prompt, model, geminiApiKey)
       }
 

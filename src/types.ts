@@ -110,6 +110,10 @@ export interface SubscriptionInfo {
   ngoAccessLevel?: NGOAccessLevel
   ngoTeamAdminId?: string
   welcomeBonus?: WelcomeBonus
+  enterpriseRole?: "owner" | "admin" | "contributor" | "viewer"
+  enterpriseModuleAccess?: Array<"strategy" | "ideas" | "review" | "humanizer">
+  individualProLicense?: boolean
+  enterpriseOrganizationId?: string
 }
 
 export interface UserProfile {

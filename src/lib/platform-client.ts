@@ -52,18 +52,23 @@ function buildPromptFromTemplate(strings: TemplateStringsArray, values: unknown[
 
 async function callBackendLlm(request: BackendLlmRequest): Promise<unknown> {
   const config = getEnvConfig()
-  if (!config.backendApiBaseUrl) {
-    throw new Error("Backend LLM is enabled but VITE_BACKEND_API_BASE_URL is not configured")
-  }
+  
+  // Empty base URL means same-origin relative request
+  const baseUrl = config.backendApiBaseUrl ? config.backendApiBaseUrl.replace(/\/$/, "") : ""
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   }
-  if (config.useBackendAuth && config.backendApiKey) {
+  
+  // Prefer Sentinel JWT over legacy API key
+  const sentinelToken = typeof window !== "undefined" ? localStorage.getItem("sentinel_token") : null
+  if (sentinelToken) {
+    headers["Authorization"] = `Bearer ${sentinelToken}`
+  } else if (config.useBackendAuth && config.backendApiKey) {
     headers["x-backend-api-key"] = config.backendApiKey
   }
 
-  const response = await fetch(`${config.backendApiBaseUrl.replace(/\/$/, "")}/api/llm/generate`, {
+  const response = await fetch(`${baseUrl}/api/llm/generate`, {
     method: "POST",
     headers,
     body: JSON.stringify(request),
@@ -126,18 +131,23 @@ export function getPlatformKV() {
 
 export async function fetchBackendProviderStatus(): Promise<BackendProviderStatus> {
   const config = getEnvConfig()
-  if (!config.backendApiBaseUrl) {
-    throw new Error("VITE_BACKEND_API_BASE_URL is not configured")
-  }
+  
+  // Empty base URL means same-origin relative request
+  const baseUrl = config.backendApiBaseUrl ? config.backendApiBaseUrl.replace(/\/$/, "") : ""
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   }
-  if (config.useBackendAuth && config.backendApiKey) {
+  
+  // Prefer Sentinel JWT over legacy API key
+  const sentinelToken = typeof window !== "undefined" ? localStorage.getItem("sentinel_token") : null
+  if (sentinelToken) {
+    headers["Authorization"] = `Bearer ${sentinelToken}`
+  } else if (config.useBackendAuth && config.backendApiKey) {
     headers["x-backend-api-key"] = config.backendApiKey
   }
 
-  const response = await fetch(`${config.backendApiBaseUrl.replace(/\/$/, "")}/api/providers/status`, {
+  const response = await fetch(`${baseUrl}/api/providers/status`, {
     method: "GET",
     headers,
   })

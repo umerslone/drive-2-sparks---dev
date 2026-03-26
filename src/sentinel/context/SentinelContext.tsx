@@ -11,6 +11,7 @@ import React, {
   useEffect,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react"
 import { sentinelAuth } from "../api/auth"
@@ -138,6 +139,42 @@ export function SentinelProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     await initialize()
   }, [initialize])
+
+  // ── M7 fix: Session idle timeout ──
+  // Log out after configurable idle period (default 30 minutes).
+  // Resets on mouse movement, keypress, click, scroll, or touch.
+  const IDLE_TIMEOUT_MS = Number(
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_SESSION_IDLE_TIMEOUT_MS) || 30 * 60 * 1000
+  )
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!user) return // No session to timeout
+
+    const resetIdleTimer = () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = setTimeout(() => {
+        console.warn("[sentinel] Session idle timeout — logging out")
+        void logout()
+      }, IDLE_TIMEOUT_MS)
+    }
+
+    const ACTIVITY_EVENTS: Array<keyof WindowEventMap> = [
+      "mousemove",
+      "keydown",
+      "click",
+      "scroll",
+      "touchstart",
+    ]
+
+    ACTIVITY_EVENTS.forEach((evt) => window.addEventListener(evt, resetIdleTimer, { passive: true }))
+    resetIdleTimer() // Start the timer immediately
+
+    return () => {
+      ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, resetIdleTimer))
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    }
+  }, [user, logout, IDLE_TIMEOUT_MS])
 
   const value: SentinelContextValue = {
     user,

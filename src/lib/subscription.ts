@@ -1,8 +1,158 @@
 import { SubscriptionInfo, SubscriptionPlan, SubscriptionRequest, TrialInfo, UserProfile } from "@/types"
 import { getSafeKVClient } from "@/lib/spark-shim"
+import { logEnterpriseCreditUsage } from "@/lib/enterprise-subscription"
 
 const USERS_STORAGE_KEY = "platform-users"
 const SUBSCRIPTION_REQUESTS_KEY = "subscription-requests"
+
+type ChargeableModule = "review" | "humanizer"
+
+interface CreditHistoryEntry {
+  id: string
+  userId: string
+  module: ChargeableModule
+  amount: number
+  chargedToUserId: string
+  chargedToEmail: string
+  reason: string
+  createdAt: number
+}
+
+const CREDIT_HISTORY_KEY = "credit-usage-history"
+
+function hasModuleAccess(user: UserProfile, module: ChargeableModule): boolean {
+  if (user.role === "admin") return true
+  const sub = user.subscription || getDefaultSubscription()
+  if (sub.plan !== "enterprise") return true
+
+  if (sub.individualProLicense) return true
+
+  const modules = sub.enterpriseModuleAccess || ["strategy", "ideas"]
+  return modules.includes(module)
+}
+
+async function resolveCreditPayer(
+  users: Record<string, UserProfile>,
+  user: UserProfile,
+): Promise<{ payer: UserProfile; actor: UserProfile; chargeToOrgId?: string }> {
+  const actor = ensureUserSubscription(user)
+  const sub = actor.subscription || getDefaultSubscription()
+
+  if (actor.role === "admin") {
+    return { payer: actor, actor }
+  }
+
+  if (sub.plan === "enterprise" && !sub.individualProLicense) {
+    const ownerId = sub.ngoTeamAdminId
+    if (ownerId && users[ownerId]) {
+      return {
+        payer: ensureUserSubscription(users[ownerId]),
+        actor,
+        chargeToOrgId: sub.enterpriseOrganizationId,
+      }
+    }
+  }
+
+  return { payer: actor, actor }
+}
+
+async function appendCreditHistory(entry: Omit<CreditHistoryEntry, "id" | "createdAt">): Promise<void> {
+  const kv = getSafeKVClient()
+  const entries = (await kv.get<CreditHistoryEntry[]>(`${CREDIT_HISTORY_KEY}-${entry.userId}`)) || []
+  entries.unshift({
+    id: `credit_${crypto.randomUUID()}`,
+    createdAt: Date.now(),
+    ...entry,
+  })
+  await kv.set(`${CREDIT_HISTORY_KEY}-${entry.userId}`, entries.slice(0, 2000))
+}
+
+async function chargeCredits(
+  userId: string,
+  creditsToConsume: number,
+  module: ChargeableModule,
+  reason: string,
+): Promise<{ success: boolean; remainingCredits: number; error?: string }> {
+  if (creditsToConsume <= 0) {
+    return { success: false, remainingCredits: 0, error: "Credit amount must be greater than zero" }
+  }
+
+  const kv = getSafeKVClient()
+  const users = (await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY)) || {}
+  const rawUser = users[userId]
+  if (!rawUser) {
+    return { success: false, remainingCredits: 0, error: "User not found" }
+  }
+
+  const user = ensureUserSubscription(rawUser)
+  if (!hasModuleAccess(user, module)) {
+    return {
+      success: false,
+      remainingCredits: user.subscription?.proCredits || 0,
+      error: "This module is locked. Purchase individual Pro license to unlock it.",
+    }
+  }
+
+  const { payer, actor, chargeToOrgId } = await resolveCreditPayer(users, user)
+  const payerSub = payer.subscription || getDefaultSubscription()
+
+  if (payer.role === "admin") {
+    return { success: true, remainingCredits: payerSub.proCredits || 0 }
+  }
+
+  const isPaidPlan = payerSub.plan === "pro" || payerSub.plan === "team" || payerSub.plan === "enterprise"
+  if (!isPaidPlan) {
+    return { success: false, remainingCredits: payerSub.proCredits || 0, error: "Pro, Team, or Enterprise subscription required" }
+  }
+
+  if (!(payerSub.status === "active" || payerSub.status === "grace")) {
+    return { success: false, remainingCredits: payerSub.proCredits || 0, error: "Subscription is not active" }
+  }
+
+  const currentCredits = Math.max(0, payerSub.proCredits || 0)
+  if (currentCredits < creditsToConsume) {
+    return { success: false, remainingCredits: currentCredits, error: "Insufficient credits" }
+  }
+
+  const remainingCredits = currentCredits - creditsToConsume
+  users[payer.id] = {
+    ...payer,
+    subscription: {
+      ...payerSub,
+      proCredits: remainingCredits,
+      updatedAt: Date.now(),
+    },
+  }
+  await kv.set(USERS_STORAGE_KEY, users)
+
+  await appendCreditHistory({
+    userId: actor.id,
+    module,
+    amount: creditsToConsume,
+    chargedToUserId: payer.id,
+    chargedToEmail: payer.email,
+    reason,
+  })
+
+  if (chargeToOrgId) {
+    await logEnterpriseCreditUsage({
+      organizationId: chargeToOrgId,
+      actorUserId: actor.id,
+      actorEmail: actor.email,
+      chargedToUserId: payer.id,
+      module,
+      credits: creditsToConsume,
+      reason,
+    }).catch(() => null)
+  }
+
+  return { success: true, remainingCredits }
+}
+
+export async function getCreditUsageHistory(userId: string): Promise<CreditHistoryEntry[]> {
+  const kv = getSafeKVClient()
+  return (await kv.get<CreditHistoryEntry[]>(`${CREDIT_HISTORY_KEY}-${userId}`)) || []
+}
 
 export const PLAN_CONFIG = {
   basic: {
@@ -218,31 +368,11 @@ export async function consumeReviewCredit(userId: string): Promise<{ success: bo
       }
     }
 
-    // Paid plan credit consumption
     if (!isPaidPlan) {
       return { success: false, remainingCredits: 0, error: "Pro or Team subscription required" }
     }
 
-    if (!(subscription.status === "active" || subscription.status === "grace")) {
-      return { success: false, remainingCredits: subscription.proCredits || 0, error: "Subscription is not active" }
-    }
-
-    const currentCredits = Math.max(0, subscription.proCredits || 0)
-    if (currentCredits < 1) {
-      return { success: false, remainingCredits: 0, error: "Insufficient credits. Please buy more credits." }
-    }
-
-    const remainingCredits = currentCredits - 1
-    users[userId] = {
-      ...safeUser,
-      subscription: {
-        ...subscription,
-        proCredits: remainingCredits,
-        updatedAt: Date.now(),
-      },
-    }
-    await getSafeKVClient().set(USERS_STORAGE_KEY, users)
-    return { success: true, remainingCredits }
+    return await chargeCredits(userId, 1, "review", "Review check")
   } catch (error) {
     console.error("Failed to consume review credit:", error)
     return { success: false, remainingCredits: 0, error: "Failed to consume credit" }
@@ -251,50 +381,8 @@ export async function consumeReviewCredit(userId: string): Promise<{ success: bo
 
 // Keep for backward compatibility (Humanizer uses this)
 export async function consumeProCredits(userId: string, creditsToConsume: number): Promise<{ success: boolean; remainingCredits: number; error?: string }> {
-  if (creditsToConsume <= 0) {
-    return { success: false, remainingCredits: 0, error: "Credit amount must be greater than zero" }
-  }
-
   try {
-    const users = (await getSafeKVClient().get<Record<string, UserProfile>>(USERS_STORAGE_KEY)) || {}
-    const user = users[userId]
-
-    if (!user) {
-      return { success: false, remainingCredits: 0, error: "User not found" }
-    }
-
-    const safeUser = ensureUserSubscription(user)
-    const subscription = safeUser.subscription || getDefaultSubscription()
-
-    if (safeUser.role === "admin") {
-      return { success: true, remainingCredits: subscription.proCredits || 0 }
-    }
-
-    const isPaidPlan = subscription.plan === "pro" || subscription.plan === "team"
-    if (!isPaidPlan) {
-      return { success: false, remainingCredits: subscription.proCredits || 0, error: "Pro or Team subscription required" }
-    }
-
-    if (!(subscription.status === "active" || subscription.status === "grace")) {
-      return { success: false, remainingCredits: subscription.proCredits || 0, error: "Subscription is not active" }
-    }
-
-    const currentCredits = Math.max(0, subscription.proCredits || 0)
-    if (currentCredits < creditsToConsume) {
-      return { success: false, remainingCredits: currentCredits, error: "Insufficient credits" }
-    }
-
-    const remainingCredits = currentCredits - creditsToConsume
-    users[userId] = {
-      ...safeUser,
-      subscription: {
-        ...subscription,
-        proCredits: remainingCredits,
-        updatedAt: Date.now(),
-      },
-    }
-    await getSafeKVClient().set(USERS_STORAGE_KEY, users)
-    return { success: true, remainingCredits }
+    return await chargeCredits(userId, creditsToConsume, "humanizer", "Humanizer processing")
   } catch (error) {
     console.error("Failed to consume Pro credits:", error)
     return { success: false, remainingCredits: 0, error: "Failed to consume credits" }

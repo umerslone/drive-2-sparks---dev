@@ -10,6 +10,14 @@
     <meta name="theme-color" content="#5CC3EB" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!--
+      I2 (INFO): SRI (Subresource Integrity) is impractical for Google Fonts CSS.
+      Google dynamically generates the CSS response based on the user-agent, so
+      the content hash changes per browser/version making a fixed `integrity`
+      attribute impossible. The risk is low: this is a stylesheet (not a script),
+      loaded over HTTPS from a trusted CDN. To eliminate even this risk, consider
+      self-hosting the font files in a future iteration.
+    -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter&family=Lora&family=Source+Code+Pro&display=swap">
     <link href="/src/main.css" rel="stylesheet" />
     <style>

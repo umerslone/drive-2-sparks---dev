@@ -1,6 +1,8 @@
 import { UserProfile } from "@/types"
 import { ensureUserSubscription, getDefaultSubscription } from "@/lib/subscription"
 import { getSafeKVClient } from "@/lib/spark-shim"
+import { sentinelAuth } from "@/sentinel/api/auth"
+import type { SentinelUser } from "@/sentinel/types"
 
 /**
  * Safe accessor for spark.user() — guards against ReferenceError when Spark
@@ -51,6 +53,24 @@ interface PasswordResetCode {
   userId: string
 }
 
+function mapSentinelUserToUserProfile(user: SentinelUser): UserProfile {
+  const isAdminRole =
+    user.role === "SENTINEL_COMMANDER" ||
+    user.role === "ORG_ADMIN" ||
+    user.role === "TEAM_ADMIN"
+
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    role: isAdminRole ? "admin" : "client",
+    avatarUrl: user.avatarUrl,
+    subscription: getDefaultSubscription(),
+    createdAt: user.createdAt,
+    lastLoginAt: user.lastLoginAt,
+  }
+}
+
 async function simpleHash(text: string): Promise<string> {
   const encoder = new TextEncoder()
   // Salt the password to prevent rainbow table attacks
@@ -62,65 +82,21 @@ async function simpleHash(text: string): Promise<string> {
 }
 
 export const authService = {
+  /**
+   * Initialize master admin account.
+   *
+   * C2/C3 + H11 security fix: Admin provisioning is now backend-only.
+   * The hardcoded "admin123" password and admin email allowlist have been
+   * removed. Admin accounts are seeded via the backend's database migration
+   * or seed scripts, NOT from client-side code.
+   *
+   * This method is kept as a no-op for backward compatibility with callers
+   * that invoke it on startup.
+   */
   async initializeMasterAdmin(): Promise<void> {
-    // Ensure master admin exists — merges into existing users, never overwrites
-    try {
-      const kv = getSafeKVClient()
-      const adminEmail = "admin@techpigeon.org"
-      const adminId = "master-admin"
-
-      // Additional admin emails that should always have admin role
-      const ADMIN_EMAILS = new Set(["admin@techpigeon.org", "umerslone@github.user"])
-
-      const credentials = await kv.get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY) || {}
-      const users = await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
-      let usersChanged = false
-
-      // Promote any existing users whose email is in ADMIN_EMAILS
-      for (const user of Object.values(users)) {
-        if (ADMIN_EMAILS.has(user.email?.toLowerCase()) && user.role !== "admin") {
-          user.role = "admin"
-          usersChanged = true
-        }
-      }
-
-      // If master admin credential already exists, save and return
-      if (credentials[adminEmail] && users[adminId]) {
-        if (users[adminId].role !== "admin") {
-          users[adminId].role = "admin"
-          usersChanged = true
-        }
-        if (usersChanged) await kv.set(USERS_STORAGE_KEY, users)
-        return
-      }
-
-      // Seed master admin into existing data (merge, not replace)
-      const adminPassword = "admin123"
-      const passwordHash = await simpleHash(adminPassword)
-
-      if (!credentials[adminEmail]) {
-        credentials[adminEmail] = { email: adminEmail, passwordHash, userId: adminId }
-        await kv.set(USER_CREDENTIALS_KEY, credentials)
-      }
-
-      if (!users[adminId]) {
-        users[adminId] = {
-          id: adminId,
-          email: adminEmail,
-          fullName: "Admin",
-          role: "admin",
-          subscription: { plan: "pro", status: "active", proCredits: 100, updatedAt: Date.now() },
-          createdAt: Date.now(),
-          lastLoginAt: Date.now(),
-        }
-        usersChanged = true
-      }
-
-      if (usersChanged) await kv.set(USERS_STORAGE_KEY, users)
-      console.info("Master admin(s) ensured")
-    } catch (e) {
-      console.warn("Master admin init skipped:", e)
-    }
+    // No-op: Admin provisioning is backend-only.
+    // Previously this seeded a hardcoded admin123 password and promoted
+    // emails from a hardcoded allowlist — both are security vulnerabilities.
   },
 
   async signUp(email: string, password: string, fullName: string): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
@@ -129,8 +105,8 @@ export const authService = {
         return { success: false, error: "All fields are required" }
       }
 
-      if (password.length < 6) {
-        return { success: false, error: "Password must be at least 6 characters" }
+      if (password.length < 8) {
+        return { success: false, error: "Password must be at least 8 characters" }
       }
 
       const kv = getSafeKVClient()
@@ -142,7 +118,7 @@ export const authService = {
 
       const users = await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
       
-      const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      const userId = `user_${crypto.randomUUID()}`
       const passwordHash = await simpleHash(password)
 
       const newUser: UserProfile = {
@@ -179,6 +155,19 @@ export const authService = {
     try {
       if (!email || !password) {
         return { success: false, error: "Email and password are required" }
+      }
+
+      // Prefer Sentinel backend auth first so seeded backend users can sign in.
+      const sentinelResult = await sentinelAuth.login(email, password)
+      if (sentinelResult.success && sentinelResult.session?.user) {
+        const normalizedUser = ensureUserSubscription(mapSentinelUserToUserProfile(sentinelResult.session.user))
+        const kv = getSafeKVClient()
+        const users = await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
+        users[normalizedUser.id] = normalizedUser
+        await kv.set(USERS_STORAGE_KEY, users)
+        await kv.set(CURRENT_USER_KEY, normalizedUser.id)
+        saveCurrentUserIdLocal(normalizedUser.id)
+        return { success: true, user: normalizedUser }
       }
 
       const kv = getSafeKVClient()
@@ -258,9 +247,10 @@ export const authService = {
       const kv = getSafeKVClient()
       const users = await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
       
-      const ADMIN_EMAILS = new Set(["admin@techpigeon.org", "umerslone@github.user"])
+      // C3/H11 fix: Removed hardcoded ADMIN_EMAILS allowlist.
+      // Admin role assignment is now managed server-side only.
       const userEmail = (githubUser.email || `${githubUser.login}@github.user`).toLowerCase()
-      const isAdmin = githubUser.isOwner || ADMIN_EMAILS.has(userEmail)
+      const isAdmin = Boolean(githubUser.isOwner) // Only Spark runtime owner gets admin, no email allowlist
       const githubUserId = githubUser.id
       
       const existingUser = Object.values(users).find(u => u.id === githubUserId)
@@ -312,6 +302,10 @@ export const authService = {
   async logout(): Promise<void> {
     // Non-blocking — failures here should never prevent the user from "logging out" in the UI
     try {
+      const sentinelSession = await sentinelAuth.getSession().catch(() => null)
+      if (sentinelSession?.user?.id) {
+        await sentinelAuth.logout(sentinelSession.user.id).catch(() => null)
+      }
       await getSafeKVClient().delete(CURRENT_USER_KEY)
       clearCurrentUserIdLocal()
     } catch {
@@ -366,6 +360,22 @@ export const authService = {
         }
       } catch {
         console.log("GitHub auth not available, using email/password auth")
+      }
+
+      // Restore session from Sentinel backend token when present.
+      try {
+        const sentinelSession = await sentinelAuth.getSession()
+        if (sentinelSession?.user) {
+          const users = await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
+          const normalized = ensureUserSubscription(mapSentinelUserToUserProfile(sentinelSession.user))
+          users[normalized.id] = normalized
+          await kv.set(USERS_STORAGE_KEY, users)
+          await kv.set(CURRENT_USER_KEY, normalized.id)
+          saveCurrentUserIdLocal(normalized.id)
+          return normalized
+        }
+      } catch {
+        // Keep legacy auth flow resilient when Sentinel backend is unavailable
       }
 
       return null
@@ -489,8 +499,8 @@ export const authService = {
         return { success: false, error: "All fields are required" }
       }
 
-      if (newPassword.length < 6) {
-        return { success: false, error: "Password must be at least 6 characters" }
+      if (newPassword.length < 8) {
+        return { success: false, error: "Password must be at least 8 characters" }
       }
 
       const verifyResult = await this.verifyResetCode(email, code)

@@ -24,6 +24,7 @@ import { PlagiarismChecker } from "@/components/PlagiarismChecker"
 import { IdeaGeneration } from "@/components/IdeaGeneration"
 import { NGOModule } from "@/components/NGOModule"
 import { MobileNav } from "@/components/MobileNav"
+import { RagChat } from "@/components/RagChat"
 import faviconImg from "@/assets/images/sentinel-sas-logo.svg"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -45,6 +46,7 @@ import { exportStrategyAsPDF } from "@/lib/pdf-export"
 import { exportStrategyAsWord } from "@/lib/document-export"
 import { estimateGenerationCostCents, estimatePromptTokens, getCurrentMonthKey, getExportPlanConfig, getStrategyPlanConfig, loadBudgetLimits } from "@/lib/strategy-governance"
 import { adminService } from "@/lib/admin"
+import { getEnvConfig } from "@/lib/env-config"
 
 interface PromptMemoryItem {
   prompt: string
@@ -307,8 +309,25 @@ function App() {
   const charCount = description.length
   const showCharCounter = charCount >= 900
   const entitlements = user ? getFeatureEntitlements(user) : null
+  const ragChatEnabled = getEnvConfig().enableRagChat
   const canAccessNGOSaaS = user?.role === "admin" || !!entitlements?.canAccessNGOSaaS
-  const strategyPlan = entitlements?.isPaidPlan ? (entitlements.isTeam ? "team" : "pro") : "basic"
+  const userEnterpriseModules = user?.subscription?.enterpriseModuleAccess || ["strategy", "ideas"]
+  const hasIndividualProLicense = !!user?.subscription?.individualProLicense
+  const canUseReviewModule =
+    user?.role === "admin" ||
+    (user?.subscription?.plan === "enterprise"
+      ? hasIndividualProLicense || userEnterpriseModules.includes("review")
+      : !!entitlements?.canAccessReview)
+  const canUseHumanizerModule =
+    user?.role === "admin" ||
+    (user?.subscription?.plan === "enterprise"
+      ? hasIndividualProLicense || userEnterpriseModules.includes("humanizer")
+      : !!entitlements?.canUseHumanizer)
+  const strategyPlan = user?.role === "admin"
+    ? "pro"
+    : entitlements?.isPaidPlan
+      ? (entitlements.isTeam ? "team" : "pro")
+      : "basic"
   const strategyPlanConfig = getStrategyPlanConfig(strategyPlan)
   const exportPlanConfig = getExportPlanConfig(strategyPlan)
   const spendProgress = Math.min(100, Math.round(((monthlyStrategySpendCents || 0) / strategyPlanConfig.monthlyBudgetCents) * 100))
@@ -318,7 +337,19 @@ function App() {
   useEffect(() => {
     if (!user) return
 
-    const allowedTabs = new Set<string>(["generate", "saved", "ideas", "plagiarism", "humanizer", "dashboard", "timeline"])
+    const allowedTabs = new Set<string>(["generate", "saved", "ideas", "dashboard", "timeline"])
+
+    if (canUseReviewModule) {
+      allowedTabs.add("plagiarism")
+    }
+
+    if (canUseHumanizerModule) {
+      allowedTabs.add("humanizer")
+    }
+
+    if (ragChatEnabled) {
+      allowedTabs.add("rag-chat")
+    }
 
     if (user.role === "admin") {
       allowedTabs.add("sentinel-brain")
@@ -333,7 +364,7 @@ function App() {
     if (!allowedTabs.has(activeTab)) {
       setActiveTab("generate")
     }
-  }, [activeTab, user, canAccessNGOSaaS])
+  }, [activeTab, user, canAccessNGOSaaS, ragChatEnabled, canUseReviewModule, canUseHumanizerModule])
 
   const quickPromptSuggestions = useMemo(() => {
     const current = description.trim().toLowerCase()
@@ -1348,12 +1379,18 @@ ${JSON.stringify(candidate)}`
                     <Lightbulb size={16} weight="bold" className="flex-shrink-0" />
                     <span className="hidden sm:inline">Strategy</span>
                   </TabsTrigger>
+                  {ragChatEnabled && (
+                    <TabsTrigger value="rag-chat" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                      <ChatsCircle size={16} weight="bold" className="flex-shrink-0" />
+                      <span className="hidden sm:inline">RAG Chat</span>
+                    </TabsTrigger>
+                  )}
                   <TabsTrigger value="ideas" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                     <Sparkle size={16} weight="bold" className="flex-shrink-0" />
                     <span className="hidden sm:inline">Ideas</span>
                   </TabsTrigger>
                   <TabsTrigger value="plagiarism" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                    {entitlements?.canAccessReview || user.role === "admin" ? (
+                    {canUseReviewModule ? (
                       <MagnifyingGlass size={16} weight="bold" className="flex-shrink-0" />
                     ) : (
                       <LockSimple size={16} weight="bold" className="text-muted-foreground flex-shrink-0" />
@@ -1361,7 +1398,7 @@ ${JSON.stringify(candidate)}`
                     <span className="hidden sm:inline">Review</span>
                   </TabsTrigger>
                   <TabsTrigger value="humanizer" className="gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5 whitespace-nowrap flex-shrink-0 rounded-lg hover:bg-accent/50 transition-colors data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                    {entitlements?.canUseHumanizer || user.role === "admin" ? (
+                    {canUseHumanizerModule ? (
                       <Sparkle size={16} weight="bold" className="flex-shrink-0" />
                     ) : (
                       <LockSimple size={16} weight="bold" className="text-muted-foreground flex-shrink-0" />
@@ -2280,16 +2317,22 @@ ${JSON.stringify(candidate)}`
               <IdeaGeneration userId={user.id} user={user} />
             </TabsContent>
 
+            {ragChatEnabled && (
+              <TabsContent value="rag-chat" className="space-y-6">
+                <RagChat userId={user.id} />
+              </TabsContent>
+            )}
+
             <TabsContent value="ngo-saas" className="space-y-6">
               <NGOModule userId={user.id} user={user} />
             </TabsContent>
 
             <TabsContent value="plagiarism" className="space-y-6">
-              <PlagiarismChecker user={user} />
+              {canUseReviewModule ? <PlagiarismChecker user={user} /> : <UpgradePaywall user={user} feature="review" />}
             </TabsContent>
 
             <TabsContent value="humanizer" className="space-y-6">
-              <PlagiarismChecker user={user} mode="humanizer" />
+              {canUseHumanizerModule ? <PlagiarismChecker user={user} mode="humanizer" /> : <UpgradePaywall user={user} feature="humanizer" />}
             </TabsContent>
 
             <TabsContent value="dashboard" className="space-y-6">
@@ -2532,9 +2575,10 @@ ${JSON.stringify(candidate)}`
           onTabChange={setActiveTab}
           isAdmin={user.role === "admin"}
           savedCount={savedStrategies?.length || 0}
-          canAccessReview={entitlements?.canAccessReview || user.role === "admin"}
-          canUseHumanizer={entitlements?.canUseHumanizer || user.role === "admin"}
+          canAccessReview={canUseReviewModule}
+          canUseHumanizer={canUseHumanizerModule}
           canAccessNGOSaaS={canAccessNGOSaaS}
+          canAccessRagChat={ragChatEnabled}
         />
         
         <Footer />

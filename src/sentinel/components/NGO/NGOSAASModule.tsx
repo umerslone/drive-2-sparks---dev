@@ -125,6 +125,7 @@ export function NGOSAASModule({ projectId, organizationId }: NGOSAASModuleProps)
           },
         ],
         generatedBy: user.id,
+        status: "DRAFT",
       },
       user.id
     )

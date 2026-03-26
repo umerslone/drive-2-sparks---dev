@@ -44,6 +44,45 @@ export interface CachedGeneration {
   expires_at: string
 }
 
+export interface ChatThread {
+  id: number
+  user_id: number | null
+  module: string
+  title: string
+  status: "active" | "archived"
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatMessage {
+  id: number
+  thread_id: number
+  role: "user" | "assistant" | "system"
+  content: string
+  provider: string | null
+  model_used: string | null
+  providers_used: string[] | null
+  brain_hits: number
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface RetrievalTrace {
+  id: number
+  thread_id: number | null
+  message_id: number | null
+  query_text: string
+  module: string | null
+  provider: string | null
+  model_used: string | null
+  selected_chunks: Record<string, unknown>[]
+  total_candidates: number
+  avg_similarity: number | null
+  retrieval_latency_ms: number | null
+  generation_latency_ms: number | null
+  created_at: string
+}
+
 // --- Database Initialization ---
 
 export async function ensureBrainTables(): Promise<void> {
@@ -104,6 +143,66 @@ export async function ensureBrainTables(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '30 days')
     )
+  `
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS chat_threads (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER,
+      module TEXT NOT NULL DEFAULT 'general',
+      title TEXT NOT NULL DEFAULT 'New Chat',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_chat_threads_user_updated
+    ON chat_threads (user_id, updated_at DESC)
+  `
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id BIGSERIAL PRIMARY KEY,
+      thread_id BIGINT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      provider TEXT,
+      model_used TEXT,
+      providers_used TEXT[],
+      brain_hits INTEGER NOT NULL DEFAULT 0,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_created
+    ON chat_messages (thread_id, created_at ASC)
+  `
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS retrieval_traces (
+      id BIGSERIAL PRIMARY KEY,
+      thread_id BIGINT REFERENCES chat_threads(id) ON DELETE SET NULL,
+      message_id BIGINT REFERENCES chat_messages(id) ON DELETE SET NULL,
+      query_text TEXT NOT NULL,
+      module TEXT,
+      provider TEXT,
+      model_used TEXT,
+      selected_chunks JSONB NOT NULL DEFAULT '[]'::jsonb,
+      total_candidates INTEGER NOT NULL DEFAULT 0,
+      avg_similarity DOUBLE PRECISION,
+      retrieval_latency_ms INTEGER,
+      generation_latency_ms INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_retrieval_traces_thread_created
+    ON retrieval_traces (thread_id, created_at DESC)
   `
 }
 
@@ -271,6 +370,235 @@ export async function getRecentQueries(userId?: number, limit = 20): Promise<Que
     SELECT * FROM query_log ORDER BY created_at DESC LIMIT ${limit}
   `
   return rows as QueryLogEntry[]
+}
+
+// --- Chat Threads ---
+
+export async function createChatThread(entry?: {
+  user_id?: number
+  module?: string
+  title?: string
+  status?: ChatThread["status"]
+}): Promise<ChatThread> {
+  const sql = await getNeonClient()
+  const rows = await sql`
+    INSERT INTO chat_threads (user_id, module, title, status)
+    VALUES (
+      ${entry?.user_id ?? null},
+      ${entry?.module ?? "general"},
+      ${entry?.title ?? "New Chat"},
+      ${entry?.status ?? "active"}
+    )
+    RETURNING *
+  `
+  const rowsArray = Array.isArray(rows) ? rows : []
+  return rowsArray[0] as ChatThread
+}
+
+export async function listChatThreads(options?: {
+  user_id?: number
+  module?: string
+  status?: ChatThread["status"]
+  limit?: number
+}): Promise<ChatThread[]> {
+  const sql = await getNeonClient()
+  const limit = options?.limit ?? 50
+
+  const rows = await sql`
+    SELECT *
+    FROM chat_threads
+    WHERE (${options?.user_id ?? null}::int IS NULL OR user_id = ${options?.user_id ?? null})
+      AND (${options?.module ?? null}::text IS NULL OR module = ${options?.module ?? null})
+      AND (${options?.status ?? null}::text IS NULL OR status = ${options?.status ?? null})
+    ORDER BY updated_at DESC
+    LIMIT ${limit}
+  `
+
+  return rows as ChatThread[]
+}
+
+export async function updateChatThread(
+  id: number,
+  updates: { title?: string; status?: ChatThread["status"]; module?: string }
+): Promise<ChatThread | null> {
+  const sql = await getNeonClient()
+  const rows = await sql`
+    UPDATE chat_threads
+    SET
+      title = COALESCE(${updates.title ?? null}, title),
+      status = COALESCE(${updates.status ?? null}, status),
+      module = COALESCE(${updates.module ?? null}, module),
+      updated_at = NOW()
+    WHERE id = ${id}
+    RETURNING *
+  `
+
+  const rowsArray = Array.isArray(rows) ? rows : []
+  return rowsArray[0] ? (rowsArray[0] as ChatThread) : null
+}
+
+export async function autoTitleThreadFromFirstMessage(
+  threadId: number,
+  firstMessage: string
+): Promise<void> {
+  const sql = await getNeonClient()
+  const normalized = firstMessage.trim().replace(/\s+/g, " ")
+  if (!normalized) return
+
+  const maxLen = 72
+  const title = normalized.length > maxLen ? `${normalized.slice(0, maxLen - 3)}...` : normalized
+
+  await sql`
+    UPDATE chat_threads
+    SET title = ${title}, updated_at = NOW()
+    WHERE id = ${threadId} AND title = 'New Chat'
+  `
+}
+
+// --- Chat Messages ---
+
+export async function appendChatMessage(entry: {
+  thread_id: number
+  role: ChatMessage["role"]
+  content: string
+  provider?: string
+  model_used?: string
+  providers_used?: string[]
+  brain_hits?: number
+  metadata?: Record<string, unknown>
+}): Promise<ChatMessage> {
+  const sql = await getNeonClient()
+  const rows = await sql`
+    INSERT INTO chat_messages (
+      thread_id,
+      role,
+      content,
+      provider,
+      model_used,
+      providers_used,
+      brain_hits,
+      metadata
+    )
+    VALUES (
+      ${entry.thread_id},
+      ${entry.role},
+      ${entry.content},
+      ${entry.provider ?? null},
+      ${entry.model_used ?? null},
+      ${entry.providers_used ?? null},
+      ${entry.brain_hits ?? 0},
+      ${entry.metadata ? JSON.stringify(entry.metadata) : null}::jsonb
+    )
+    RETURNING *
+  `
+
+  await sql`
+    UPDATE chat_threads
+    SET updated_at = NOW()
+    WHERE id = ${entry.thread_id}
+  `
+
+  const rowsArray = Array.isArray(rows) ? rows : []
+  return rowsArray[0] as ChatMessage
+}
+
+export async function listChatMessages(threadId: number, limit = 200): Promise<ChatMessage[]> {
+  const sql = await getNeonClient()
+  const rows = await sql`
+    SELECT *
+    FROM chat_messages
+    WHERE thread_id = ${threadId}
+    ORDER BY created_at ASC
+    LIMIT ${limit}
+  `
+  return rows as ChatMessage[]
+}
+
+// --- Retrieval Traces ---
+
+export async function storeRetrievalTrace(entry: {
+  thread_id?: number
+  message_id?: number
+  query_text: string
+  module?: string
+  provider?: string
+  model_used?: string
+  selected_chunks?: Record<string, unknown>[]
+  total_candidates?: number
+  avg_similarity?: number
+  retrieval_latency_ms?: number
+  generation_latency_ms?: number
+}): Promise<RetrievalTrace> {
+  const sql = await getNeonClient()
+  const rows = await sql`
+    INSERT INTO retrieval_traces (
+      thread_id,
+      message_id,
+      query_text,
+      module,
+      provider,
+      model_used,
+      selected_chunks,
+      total_candidates,
+      avg_similarity,
+      retrieval_latency_ms,
+      generation_latency_ms
+    )
+    VALUES (
+      ${entry.thread_id ?? null},
+      ${entry.message_id ?? null},
+      ${entry.query_text},
+      ${entry.module ?? null},
+      ${entry.provider ?? null},
+      ${entry.model_used ?? null},
+      ${JSON.stringify(entry.selected_chunks ?? [])}::jsonb,
+      ${entry.total_candidates ?? 0},
+      ${entry.avg_similarity ?? null},
+      ${entry.retrieval_latency_ms ?? null},
+      ${entry.generation_latency_ms ?? null}
+    )
+    RETURNING *
+  `
+
+  const rowsArray = Array.isArray(rows) ? rows : []
+  return rowsArray[0] as RetrievalTrace
+}
+
+export async function listRetrievalTracesByThread(
+  threadId: number,
+  limit = 100
+): Promise<RetrievalTrace[]> {
+  const sql = await getNeonClient()
+  const rows = await sql`
+    SELECT *
+    FROM retrieval_traces
+    WHERE thread_id = ${threadId}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `
+  return rows as RetrievalTrace[]
+}
+
+export async function listRetrievalTracesByMessageId(
+  messageId: number,
+  limit = 10
+): Promise<RetrievalTrace[]> {
+  const sql = await getNeonClient()
+  const rows = await sql`
+    SELECT *
+    FROM retrieval_traces
+    WHERE message_id = ${messageId}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `
+  return rows as RetrievalTrace[]
+}
+
+export async function listRetrievalTraceByMessageId(
+  messageId: number
+): Promise<RetrievalTrace | null> {
+  const rows = await listRetrievalTracesByMessageId(messageId, 1)
+  return rows[0] ?? null
 }
 
 // --- Generation Cache ---

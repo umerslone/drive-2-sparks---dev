@@ -3,6 +3,22 @@ import { format } from "date-fns"
 import { ReviewComputationMeta, ReviewFilters, SectionSummary, enrichReviewResult } from "@/lib/review-engine"
 import { REPORT_BRAND, reportLogoMarkupAsync } from "@/lib/report-branding"
 
+// ─────────────────────────── H10 XSS Fix: HTML Escaping ──────────
+/**
+ * Escape user-supplied strings before interpolating into HTML templates.
+ * Prevents XSS via injected <script>, event handlers, or entity abuse.
+ */
+function escapeHtml(str: unknown): string {
+  if (str === null || str === undefined) return ""
+  const s = String(str)
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
 export async function exportStrategyAsPDF(strategy: SavedStrategy) {
   const brand = REPORT_BRAND
   const logoHtml = await reportLogoMarkupAsync(42)
@@ -11,7 +27,7 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>${strategy.name}</title>
+  <title>${escapeHtml(strategy.name)}</title>
   <style>
     body { font-family: Inter, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; color: ${brand.colors.text}; }
     .header { border-bottom: 3px solid ${brand.colors.accent}; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
@@ -23,33 +39,33 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
 <body>
   <div class="header">
     <div>
-      <div style="font-weight: 700; color: ${brand.colors.primary};">${brand.companyName}</div>
-      <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
+      <div style="font-weight: 700; color: ${brand.colors.primary};">${escapeHtml(brand.companyName)}</div>
+      <div style="font-size: 12px; color: ${brand.colors.muted};">${escapeHtml(brand.projectName)}</div>
     </div>
     ${logoHtml}
   </div>
-  <h1>${strategy.name}</h1>
+  <h1>${escapeHtml(strategy.name)}</h1>
   <p><strong>Created:</strong> ${format(strategy.timestamp, "MMM d, yyyy")}</p>
   <div class="section">
     <h2>Description</h2>
-    <p>${strategy.description}</p>
+    <p>${escapeHtml(strategy.description)}</p>
   </div>
   <div class="section">
     <h2>Marketing Copy</h2>
-    <p>${strategy.result.marketingCopy}</p>
+    <p>${escapeHtml(strategy.result.marketingCopy)}</p>
   </div>
   <div class="section">
     <h2>Visual Strategy</h2>
-    <p>${strategy.result.visualStrategy}</p>
+    <p>${escapeHtml(strategy.result.visualStrategy)}</p>
   </div>
   <div class="section">
     <h2>Target Audience</h2>
-    <p>${strategy.result.targetAudience}</p>
+    <p>${escapeHtml(strategy.result.targetAudience)}</p>
   </div>
   <div class="footer">
-    <strong>${brand.companyName}</strong><br>
-    ${brand.projectName}<br>
-    ${brand.contactLine}
+    <strong>${escapeHtml(brand.companyName)}</strong><br>
+    ${escapeHtml(brand.projectName)}<br>
+    ${escapeHtml(brand.contactLine)}
   </div>
 </body>
 </html>
@@ -85,10 +101,14 @@ export async function exportReviewToPDF(
   const techpigeonLogo = await reportLogoMarkupAsync(50)
 
   const highlightText = (text: string) => {
-    let highlightedText = text
+    // H10: Escape the base text FIRST to prevent XSS, then apply highlight
+    // <mark> tags on the already-escaped content. The highlight search strings
+    // must also be escaped so the regex matches the escaped output.
+    let highlightedText = escapeHtml(text)
 
     review.plagiarismResult.highlights.forEach((highlight) => {
-      const regex = new RegExp(escapeRegExp(highlight.text), 'gi')
+      const escapedSearch = escapeHtml(highlight.text)
+      const regex = new RegExp(escapeRegExp(escapedSearch), 'gi')
       const color = highlight.severity === 'high' ? '#ff4444' : highlight.severity === 'medium' ? '#ff9944' : '#ffcc44'
       highlightedText = highlightedText.replace(
         regex,
@@ -97,7 +117,8 @@ export async function exportReviewToPDF(
     })
 
     review.plagiarismResult.aiHighlights.forEach((aiHighlight) => {
-      const regex = new RegExp(escapeRegExp(aiHighlight.text), 'gi')
+      const escapedSearch = escapeHtml(aiHighlight.text)
+      const regex = new RegExp(escapeRegExp(escapedSearch), 'gi')
       highlightedText = highlightedText.replace(
         regex,
         `<mark style="background-color: #9966ff; padding: 2px 4px; border-radius: 2px;">$&</mark>`
@@ -117,7 +138,7 @@ export async function exportReviewToPDF(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${review.name} - ${brand.companyName} Review Report</title>
+  <title>${escapeHtml(review.name)} - ${escapeHtml(brand.companyName)} Review Report</title>
   <style>
     * {
       margin: 0;
@@ -400,11 +421,11 @@ export async function exportReviewToPDF(
   <div class="header">
     <div class="header-content">
       <h1>Academic Integrity Report</h1>
-      <div class="subtitle">${brand.projectName} | Generated by ${brand.companyName} Review System</div>
+      <div class="subtitle">${escapeHtml(brand.projectName)} | Generated by ${escapeHtml(brand.companyName)} Review System</div>
     </div>
     <div class="logo-section">
       ${techpigeonLogo}
-      <div class="company-name">${brand.companyName}</div>
+      <div class="company-name">${escapeHtml(brand.companyName)}</div>
     </div>
   </div>
 
@@ -413,11 +434,11 @@ export async function exportReviewToPDF(
     <div class="meta-grid">
       <div class="meta-item">
         <div class="meta-label">Document Name</div>
-        <div class="meta-value">${review.name}</div>
+        <div class="meta-value">${escapeHtml(review.name)}</div>
       </div>
       <div class="meta-item">
         <div class="meta-label">Original File</div>
-        <div class="meta-value">${review.fileName}</div>
+        <div class="meta-value">${escapeHtml(review.fileName)}</div>
       </div>
       <div class="meta-item">
         <div class="meta-label">Review Date</div>
@@ -458,14 +479,14 @@ export async function exportReviewToPDF(
       <div class="score-value warning">
         ${meta.likelyTurnitinRange.min}% - ${meta.likelyTurnitinRange.max}%
       </div>
-      <div style="font-size: 12px; color: #666;">Confidence: ${meta.confidenceLabel.toUpperCase()}</div>
+      <div style="font-size: 12px; color: #666;">Confidence: ${escapeHtml(meta.confidenceLabel.toUpperCase())}</div>
     </div>
   </div>
 
   <div class="section">
     <h2 class="section-title">Scoring Context</h2>
     <div class="section-content">
-      ${meta.confidenceReasons.map((reason) => `<div>- ${reason}</div>`).join("")}
+      ${meta.confidenceReasons.map((reason) => `<div>- ${escapeHtml(reason)}</div>`).join("")}
       ${filters ? `<div style="margin-top: 10px;"><strong>Active filters:</strong> quotes=${filters.excludeQuotes ? "excluded" : "included"}, references=${filters.excludeReferences ? "excluded" : "included"}, minMatchWords=${filters.minMatchWords}</div>` : ""}
     </div>
   </div>
@@ -475,7 +496,7 @@ export async function exportReviewToPDF(
   <div class="section">
     <h2 class="section-title">Executive Summary</h2>
     <div class="section-content">
-      ${review.summary}
+      ${escapeHtml(review.summary)}
     </div>
   </div>
 
@@ -487,8 +508,8 @@ export async function exportReviewToPDF(
         .map(
           (item) => `
             <div style="background: ${brand.colors.panel}; border-left: 3px solid ${brand.colors.accent}; padding: 12px 15px; margin-bottom: 10px; border-radius: 4px;">
-              <strong>${item.section}</strong><br>
-              <span>${item.summary}</span>
+              <strong>${escapeHtml(item.section)}</strong><br>
+              <span>${escapeHtml(item.summary)}</span>
             </div>
           `
         )
@@ -501,7 +522,7 @@ export async function exportReviewToPDF(
   <div class="section">
     <h2 class="section-title">Recommendations</h2>
     <ul class="recommendations">
-      ${review.plagiarismResult.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+      ${review.plagiarismResult.recommendations.map(rec => `<li>${escapeHtml(rec)}</li>`).join('')}
     </ul>
   </div>
   ` : ''}
@@ -542,7 +563,7 @@ export async function exportReviewToPDF(
   <div class="section">
     <h2 class="section-title">Original Document Text</h2>
     <div class="document-text">
-      ${review.documentText}
+      ${escapeHtml(review.documentText)}
     </div>
   </div>
   `}
@@ -553,7 +574,7 @@ export async function exportReviewToPDF(
     <div class="section-content">
       ${review.plagiarismResult.detectedSources.map(source => `
         <div style="background: ${brand.colors.panel}; border-left: 3px solid ${brand.colors.accent}; padding: 12px 15px; margin-bottom: 10px; border-radius: 4px;">
-          <strong>${source.source}</strong> - ${source.similarity}% similarity
+          <strong>${escapeHtml(source.source)}</strong> - ${source.similarity}% similarity
         </div>
       `).join('')}
     </div>
@@ -561,13 +582,13 @@ export async function exportReviewToPDF(
   ` : ''}
 
   <div class="footer">
-    <div class="footer-brand">${brand.companyName}</div>
-    <div>${brand.projectName}</div>
+    <div class="footer-brand">${escapeHtml(brand.companyName)}</div>
+    <div>${escapeHtml(brand.projectName)}</div>
     <div class="footer-address">
-      ${brand.contactLine}
+      ${escapeHtml(brand.contactLine)}
     </div>
     <div style="margin-top: 15px; font-size: 11px;">
-      © ${new Date().getFullYear()} ${brand.companyName}. All rights reserved. | <a href="${brand.website}" style="color: ${brand.colors.accent}; text-decoration: none;">${brand.website.replace("https://", "")}</a>
+      © ${new Date().getFullYear()} ${escapeHtml(brand.companyName)}. All rights reserved. | <a href="${escapeHtml(brand.website)}" style="color: ${brand.colors.accent}; text-decoration: none;">${escapeHtml(brand.website.replace("https://", ""))}</a>
     </div>
   </div>
 </body>
@@ -614,9 +635,9 @@ export async function exportBusinessCanvasAsPDF(canvas: BusinessCanvasModel, ide
 
   const sectionsHtml = sections.map(s => `
     <div class="canvas-section">
-      <div class="section-header" style="background: ${s.color}; color: white; padding: 10px 16px; font-weight: 700; font-size: 15px;">${s.title}</div>
+      <div class="section-header" style="background: ${s.color}; color: white; padding: 10px 16px; font-weight: 700; font-size: 15px;">${escapeHtml(s.title)}</div>
       <div class="section-body" style="padding: 16px; background: #f8f9fa; border: 1px solid #e0e0e0; border-top: none;">
-        <p style="margin: 0; line-height: 1.7; white-space: pre-wrap;">${s.content}</p>
+        <p style="margin: 0; line-height: 1.7; white-space: pre-wrap;">${escapeHtml(s.content)}</p>
       </div>
     </div>
   `).join('')
@@ -626,7 +647,7 @@ export async function exportBusinessCanvasAsPDF(canvas: BusinessCanvasModel, ide
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Business Model Canvas - ${ideaName}</title>
+  <title>Business Model Canvas - ${escapeHtml(ideaName)}</title>
   <style>
     body { font-family: Inter, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; color: ${brand.colors.text}; }
     .header { border-bottom: 3px solid ${brand.colors.accent}; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
@@ -640,21 +661,21 @@ export async function exportBusinessCanvasAsPDF(canvas: BusinessCanvasModel, ide
 <body>
   <div class="header">
     <div>
-      <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${brand.companyName}</div>
-      <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
+      <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${escapeHtml(brand.companyName)}</div>
+      <div style="font-size: 12px; color: ${brand.colors.muted};">${escapeHtml(brand.projectName)}</div>
     </div>
     ${logoHtml}
   </div>
   <h1>Business Model Canvas</h1>
   <div class="meta">
-    <strong>Business Idea:</strong> ${ideaName}<br>
+    <strong>Business Idea:</strong> ${escapeHtml(ideaName)}<br>
     <strong>Generated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
   </div>
   ${sectionsHtml}
   <div class="footer">
-    <strong>${brand.companyName}</strong><br>
-    ${brand.projectName}<br>
-    ${brand.contactLine}
+    <strong>${escapeHtml(brand.companyName)}</strong><br>
+    ${escapeHtml(brand.projectName)}<br>
+    ${escapeHtml(brand.contactLine)}
   </div>
 </body>
 </html>
@@ -687,10 +708,10 @@ export async function exportPitchDeckAsPDF(pitchDeck: PitchDeck, ideaName: strin
 
   const slidesHtml = pitchDeck.slides.map((slide, index) => `
     <div class="slide" style="page-break-inside: avoid; margin-bottom: 24px;">
-      <div style="background: ${index % 2 === 0 ? brand.colors.primary : brand.colors.secondary}; color: white; padding: 12px 18px; font-weight: 700; font-size: 16px;">Slide ${slide.slideNumber}: ${slide.title}</div>
+      <div style="background: ${index % 2 === 0 ? brand.colors.primary : brand.colors.secondary}; color: white; padding: 12px 18px; font-weight: 700; font-size: 16px;">Slide ${slide.slideNumber}: ${escapeHtml(slide.title)}</div>
       <div style="padding: 18px; background: #f8f9fa; border: 1px solid #e0e0e0; border-top: none;">
-        <p style="margin: 0 0 12px 0; line-height: 1.7; white-space: pre-wrap;">${slide.content}</p>
-        ${slide.notes ? `<div style="margin-top: 12px; padding: 12px; background: #f0f0f0; border-left: 4px solid ${brand.colors.accent};"><strong>Speaker Notes:</strong><br><span style="font-style: italic; color: #666;">${slide.notes}</span></div>` : ''}
+        <p style="margin: 0 0 12px 0; line-height: 1.7; white-space: pre-wrap;">${escapeHtml(slide.content)}</p>
+        ${slide.notes ? `<div style="margin-top: 12px; padding: 12px; background: #f0f0f0; border-left: 4px solid ${brand.colors.accent};"><strong>Speaker Notes:</strong><br><span style="font-style: italic; color: #666;">${escapeHtml(slide.notes)}</span></div>` : ''}
       </div>
     </div>
   `).join('')
@@ -700,7 +721,7 @@ export async function exportPitchDeckAsPDF(pitchDeck: PitchDeck, ideaName: strin
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pitch Deck - ${ideaName}</title>
+  <title>Pitch Deck - ${escapeHtml(ideaName)}</title>
   <style>
     body { font-family: Inter, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; color: ${brand.colors.text}; }
     .header { border-bottom: 3px solid ${brand.colors.accent}; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
@@ -714,25 +735,25 @@ export async function exportPitchDeckAsPDF(pitchDeck: PitchDeck, ideaName: strin
 <body>
   <div class="header">
     <div>
-      <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${brand.companyName}</div>
-      <div style="font-size: 12px; color: ${brand.colors.muted};">${brand.projectName}</div>
+      <div style="font-weight: 700; color: ${brand.colors.primary}; font-size: 18px;">${escapeHtml(brand.companyName)}</div>
+      <div style="font-size: 12px; color: ${brand.colors.muted};">${escapeHtml(brand.projectName)}</div>
     </div>
     ${logoHtml}
   </div>
-  <h1>Pitch Deck: ${ideaName}</h1>
+  <h1>Pitch Deck: ${escapeHtml(ideaName)}</h1>
   <div class="meta">
     <strong>Slides:</strong> ${pitchDeck.slides.length}<br>
     <strong>Generated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
   </div>
   <div class="summary">
     <strong>Executive Summary</strong><br>
-    <p style="margin: 8px 0 0 0; line-height: 1.7; white-space: pre-wrap;">${pitchDeck.executiveSummary}</p>
+    <p style="margin: 8px 0 0 0; line-height: 1.7; white-space: pre-wrap;">${escapeHtml(pitchDeck.executiveSummary)}</p>
   </div>
   ${slidesHtml}
   <div class="footer">
-    <strong>${brand.companyName}</strong><br>
-    ${brand.projectName}<br>
-    ${brand.contactLine}
+    <strong>${escapeHtml(brand.companyName)}</strong><br>
+    ${escapeHtml(brand.projectName)}<br>
+    ${escapeHtml(brand.contactLine)}
   </div>
 </body>
 </html>

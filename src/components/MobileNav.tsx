@@ -10,6 +10,7 @@ interface MobileNavProps {
   canAccessReview?: boolean
   canUseHumanizer?: boolean
   canAccessNGOSaaS?: boolean
+  canAccessRagChat?: boolean
 }
 
 export function MobileNav({
@@ -20,6 +21,7 @@ export function MobileNav({
   canAccessReview = true,
   canUseHumanizer = true,
   canAccessNGOSaaS = false,
+  canAccessRagChat = false,
 }: MobileNavProps) {
   const handleTabSelect = (tab: string) => {
     onTabChange(tab)
@@ -28,6 +30,7 @@ export function MobileNav({
 
   const navItems = [
     { value: "generate", label: "Strategy", icon: Lightbulb },
+    ...(canAccessRagChat ? [{ value: "rag-chat", label: "RAG Chat", icon: Brain }] : []),
     { value: "ideas", label: "Ideas", icon: Sparkle },
     { value: "plagiarism", label: "Review", icon: canAccessReview ? MagnifyingGlass : LockSimple },
     { value: "humanizer", label: "Humanizer", icon: canUseHumanizer ? Sparkle : LockSimple },

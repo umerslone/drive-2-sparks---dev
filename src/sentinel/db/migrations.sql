@@ -282,3 +282,113 @@ CREATE TABLE IF NOT EXISTS sentinel_upgrade_requests (
   reviewed_at     TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ═══════════════════════════════════════════════════════════════════
+-- Phase 5.2 Migration: Report State Machine + Digital Signatures
+-- ═══════════════════════════════════════════════════════════════════
+
+-- Report state enum
+DO $$ BEGIN
+  CREATE TYPE report_status AS ENUM (
+    'DRAFT', 'SUBMITTED', 'APPROVED_SIGNED', 'PUBLISHED'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Add new audit actions for report workflow
+DO $$ BEGIN
+  ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'SUBMIT';
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'APPROVE';
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'SIGN';
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'PUBLISH';
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'REVERT';
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Add state machine columns to sentinel_ngo_reports
+ALTER TABLE sentinel_ngo_reports
+  ADD COLUMN IF NOT EXISTS status          TEXT NOT NULL DEFAULT 'DRAFT',
+  ADD COLUMN IF NOT EXISTS submitted_by    TEXT REFERENCES sentinel_users(id),
+  ADD COLUMN IF NOT EXISTS submitted_at    TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS approved_by     TEXT REFERENCES sentinel_users(id),
+  ADD COLUMN IF NOT EXISTS approved_at     TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS signature_hash  TEXT,
+  ADD COLUMN IF NOT EXISTS signed_by       TEXT REFERENCES sentinel_users(id),
+  ADD COLUMN IF NOT EXISTS signed_at       TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS published_by    TEXT REFERENCES sentinel_users(id),
+  ADD COLUMN IF NOT EXISTS published_at    TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_by      TEXT REFERENCES sentinel_users(id);
+
+-- Index on report status for workflow queries
+CREATE INDEX IF NOT EXISTS idx_ngo_reports_status ON sentinel_ngo_reports (status);
+CREATE INDEX IF NOT EXISTS idx_ngo_reports_org_status
+  ON sentinel_ngo_reports (organization_id, status);
+
+-- Report state transition audit trail (separate from global audit_logs for fast queries)
+CREATE TABLE IF NOT EXISTS report_state_transitions (
+  id            TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+  report_id     TEXT        NOT NULL REFERENCES sentinel_ngo_reports(id) ON DELETE CASCADE,
+  from_status   TEXT        NOT NULL,
+  to_status     TEXT        NOT NULL,
+  transitioned_by TEXT      NOT NULL,
+  comment       TEXT,
+  signature_hash TEXT,
+  timestamp     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_transitions_report
+  ON report_state_transitions (report_id, timestamp DESC);
+
+-- ============================================================
+-- Phase 3 Migration: Per-Tenant Per-Module Subscription Records
+-- ============================================================
+
+-- Module subscription status (distinct from user subscription_status)
+DO $$ BEGIN
+  CREATE TYPE module_subscription_status AS ENUM (
+    'ACTIVE', 'TRIAL', 'GRACE_PERIOD', 'EXPIRED', 'CANCELLED', 'SUSPENDED'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Org-level module subscription: the authoritative record that
+-- "Organization X has subscribed to Module Y at tier Z with N seats"
+CREATE TABLE IF NOT EXISTS sentinel_org_module_subscriptions (
+  id              TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+  organization_id TEXT        NOT NULL REFERENCES sentinel_organizations(id) ON DELETE CASCADE,
+  module_name     TEXT        NOT NULL,
+  tier            subscription_tier NOT NULL DEFAULT 'BASIC',
+  status          module_subscription_status NOT NULL DEFAULT 'ACTIVE',
+  max_seats       INTEGER     NOT NULL DEFAULT 1,
+  starts_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at      TIMESTAMPTZ,                          -- NULL = no expiry
+  auto_renew      BOOLEAN     NOT NULL DEFAULT FALSE,
+  grace_period_days INTEGER   NOT NULL DEFAULT 7,        -- days after expiry before EXPIRED
+  provisioned_by  TEXT        REFERENCES sentinel_users(id),
+  provisioned_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cancelled_at    TIMESTAMPTZ,
+  cancelled_by    TEXT        REFERENCES sentinel_users(id),
+  metadata        JSONB       DEFAULT '{}',              -- extra config per module
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  -- Each org can have at most one active/trial/grace subscription per module
+  CONSTRAINT uq_org_module_active UNIQUE (organization_id, module_name)
+);
+
+-- Fast lookups: all subscriptions for an org, active subscriptions, expiring soon
+CREATE INDEX IF NOT EXISTS idx_org_mod_sub_org
+  ON sentinel_org_module_subscriptions (organization_id);
+CREATE INDEX IF NOT EXISTS idx_org_mod_sub_status
+  ON sentinel_org_module_subscriptions (status);
+CREATE INDEX IF NOT EXISTS idx_org_mod_sub_expires
+  ON sentinel_org_module_subscriptions (expires_at)
+  WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_org_mod_sub_module
+  ON sentinel_org_module_subscriptions (module_name, status);

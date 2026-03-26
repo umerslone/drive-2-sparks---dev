@@ -1,63 +1,2228 @@
 import http from "node:http"
+import crypto from "node:crypto"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 import { generateWithFallback, getProviderStatus } from "./llm-service.mjs"
+import {
+  signToken,
+  verifyToken,
+  hashPassword,
+  verifyPassword,
+  authenticateRequest,
+  extractToken,
+  isRefreshEligible,
+  isJwtConfigured,
+  signReport,
+  hashReportContent,
+  verifyReportSignature,
+} from "./auth.mjs"
+import {
+  isDbConfigured,
+  ensureSentinelTables,
+  createUser,
+  getUserByEmailForLogin,
+  getUserById,
+  updateLastLogin,
+  updatePasswordHash,
+  getUserSubscription,
+  getUserModulePermissions,
+  getOrganization,
+  listOrgUsers,
+  writeAuditLog,
+  getAuditLogs,
+  grantModulePermission as dbGrantModulePerm,
+  revokeModulePermission as dbRevokeModulePerm,
+  getReportById,
+  listReportsByProject,
+  listReportsByOrg,
+  createReport as dbCreateReport,
+  updateReportContent as dbUpdateReportContent,
+  submitReport as dbSubmitReport,
+  approveAndSignReport as dbApproveAndSign,
+  publishReport as dbPublishReport,
+  revertReport as dbRevertReport,
+  deleteReport as dbDeleteReport,
+  getReportTransitions,
+  // Phase 3: Org module subscriptions
+  getOrgModuleSubscription,
+  listOrgModuleSubscriptions,
+  createOrgModuleSubscription as dbCreateOrgModSub,
+  updateOrgModuleSubscription as dbUpdateOrgModSub,
+  cancelOrgModuleSubscription as dbCancelOrgModSub,
+  checkModuleSeatsAvailable,
+  countModuleSeats,
+  getExpiringSubscriptions,
+  processExpiredSubscriptions,
+  // Phase 4: Enhanced audit + admin stats
+  getAuditLogsAdvanced,
+  getAuditStats,
+  getSystemStats,
+  executeProxyQuery,
+} from "./db.mjs"
+import {
+  canPerformAction,
+  hasMinimumRole,
+  checkModuleAccess,
+  checkModuleGrantPermission,
+  checkModuleGrantWithSeats,
+  checkReportAction,
+  MODULES,
+  TIER_MODULES,
+  ACTIONS,
+} from "./policy.mjs"
+
+// ─────────────────────────── Config ──────────────────────────────
 
 const PORT = Number(process.env.PORT || 8787)
-const HOST = process.env.HOST || "127.0.0.1"
+const HOST = process.env.HOST || "0.0.0.0"
 const REQUIRE_AUTH =
   String(process.env.BACKEND_REQUIRE_AUTH || "false").toLowerCase() === "true"
 const BACKEND_API_KEY = process.env.BACKEND_API_KEY || ""
 
-function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, {
+/**
+ * Feature flag: when true, sentinel auth routes are enabled.
+ * Existing API-key-guarded routes continue to work regardless.
+ */
+const SENTINEL_AUTH_ENABLED =
+  String(process.env.BACKEND_SENTINEL_AUTH || "false").toLowerCase() === "true"
+
+/**
+ * Allowed CORS origins. Defaults to localhost dev origins.
+ * Set CORS_ALLOWED_ORIGINS env var to a comma-separated list for production.
+ */
+const CORS_ALLOWED_ORIGINS = new Set(
+  (process.env.CORS_ALLOWED_ORIGINS || "http://localhost:5173,http://localhost:4173,http://localhost:3000")
+    .split(",")
+    .map(o => o.trim())
+    .filter(Boolean)
+)
+
+/**
+ * Trusted proxy IPs. Only trust x-forwarded-for from these.
+ * Set TRUSTED_PROXIES env var to comma-separated CIDR/IPs for production.
+ */
+const TRUSTED_PROXIES = new Set(
+  (process.env.TRUSTED_PROXIES || "127.0.0.1,::1,::ffff:127.0.0.1")
+    .split(",")
+    .map(p => p.trim())
+    .filter(Boolean)
+)
+
+// ─────────────────────── Token Revocation Store ──────────────────
+
+/** In-memory token blocklist. In production, use Redis or a DB table. */
+const _revokedTokens = new Map() // jti/tokenHash -> expiryTimestamp
+const TOKEN_BLOCKLIST_MAX = 10000
+
+function revokeToken(tokenHash, expiresAt) {
+  // Evict expired entries if list is getting large
+  if (_revokedTokens.size > TOKEN_BLOCKLIST_MAX) {
+    const now = Math.floor(Date.now() / 1000)
+    for (const [key, exp] of _revokedTokens) {
+      if (exp < now) _revokedTokens.delete(key)
+    }
+  }
+  _revokedTokens.set(tokenHash, expiresAt)
+}
+
+function isTokenRevoked(tokenHash) {
+  const exp = _revokedTokens.get(tokenHash)
+  if (exp === undefined) return false
+  if (exp < Math.floor(Date.now() / 1000)) {
+    _revokedTokens.delete(tokenHash) // Expired, clean up
+    return false
+  }
+  return true
+}
+
+/** Hash a JWT string to use as blocklist key (avoids storing full tokens) */
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex").slice(0, 32)
+}
+
+// ─────────────────────── Rate Limiter ────────────────────────────
+
+/**
+ * Simple in-memory sliding-window rate limiter.
+ * Keyed by (category + identifier), e.g. "login:192.168.1.1"
+ */
+const _rateLimitBuckets = new Map() // key -> { count, windowStart }
+
+const RATE_LIMITS = {
+  login: { windowMs: 60000, max: 5 },       // 5 login attempts per minute per IP
+  api:   { windowMs: 60000, max: 120 },      // 120 API calls per minute per user
+  create:{ windowMs: 60000, max: 15 },       // 15 create operations per minute per user
+}
+
+function checkRateLimit(category, identifier) {
+  const config = RATE_LIMITS[category]
+  if (!config) return { allowed: true }
+
+  const key = `${category}:${identifier}`
+  const now = Date.now()
+  const bucket = _rateLimitBuckets.get(key)
+
+  if (!bucket || now - bucket.windowStart > config.windowMs) {
+    _rateLimitBuckets.set(key, { count: 1, windowStart: now })
+    return { allowed: true, remaining: config.max - 1 }
+  }
+
+  bucket.count++
+  if (bucket.count > config.max) {
+    const retryAfter = Math.ceil((bucket.windowStart + config.windowMs - now) / 1000)
+    return { allowed: false, retryAfter, remaining: 0 }
+  }
+
+  return { allowed: true, remaining: config.max - bucket.count }
+}
+
+// Periodically clean up stale rate limit buckets (every 5 min)
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, bucket] of _rateLimitBuckets) {
+    if (now - bucket.windowStart > 300000) _rateLimitBuckets.delete(key)
+  }
+}, 300000).unref()
+
+// ─────────────────────── CSRF Double-Submit Cookie (M1) ─────────
+
+/**
+ * M1 fix: CSRF protection using the double-submit cookie pattern.
+ *
+ * On login/register, we set a `__csrf` cookie with a random token
+ * (HttpOnly=false so the JS SPA can read it; SameSite=Strict).
+ * State-changing requests (POST/PUT/DELETE) on authenticated routes must
+ * send the same value in the `X-CSRF-Token` header. Because an attacker
+ * on a different origin cannot read same-site cookies, they can never
+ * produce a matching header.
+ *
+ * Exempt: OPTIONS preflight, GET/HEAD (safe methods), login/register
+ * (no session yet), /health (unauthenticated).
+ */
+
+const CSRF_COOKIE_NAME = "__csrf"
+const CSRF_HEADER_NAME = "x-csrf-token"
+
+/** Paths that are exempt from CSRF validation (login/register create the token). */
+const CSRF_EXEMPT_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/register",
+  "/health",
+])
+
+function generateCsrfToken() {
+  return crypto.randomUUID()
+}
+
+/**
+ * Build the Set-Cookie header value for the CSRF token.
+ * HttpOnly=false so the SPA can read the cookie via document.cookie.
+ * SameSite=Strict prevents the browser from sending the cookie on
+ * cross-origin requests, adding an extra layer of protection.
+ */
+function csrfSetCookieValue(token) {
+  const isProduction =
+    String(process.env.NODE_ENV || "").toLowerCase() === "production"
+  const parts = [
+    `${CSRF_COOKIE_NAME}=${token}`,
+    "Path=/",
+    isProduction ? "SameSite=Strict" : "SameSite=Lax",
+  ]
+  if (isProduction) parts.push("Secure")
+  // Note: NOT HttpOnly — the SPA needs to read it via document.cookie
+  return parts.join("; ")
+}
+
+/**
+ * Parse the __csrf cookie value from the Cookie header.
+ */
+function parseCsrfCookie(req) {
+  const cookieHeader = req.headers["cookie"]
+  if (!cookieHeader) return null
+  const match = cookieHeader
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${CSRF_COOKIE_NAME}=`))
+  if (!match) return null
+  return match.slice(CSRF_COOKIE_NAME.length + 1)
+}
+
+/**
+ * Validate CSRF token: the X-CSRF-Token header must match the __csrf cookie.
+ * Returns true if valid or if the request is exempt.
+ */
+function validateCsrf(req, method, path) {
+  // Safe methods don't need CSRF
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return true
+
+  // Exempt paths (login/register/health)
+  if (CSRF_EXEMPT_PATHS.has(path)) return true
+
+  const cookieToken = parseCsrfCookie(req)
+  const headerToken = req.headers[CSRF_HEADER_NAME]
+
+  if (!cookieToken || !headerToken) return false
+  if (typeof headerToken !== "string") return false
+
+  // Constant-time comparison to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(cookieToken, "utf8"),
+      Buffer.from(headerToken, "utf8")
+    )
+  } catch {
+    return false // length mismatch
+  }
+}
+
+/** Get the validated CORS origin for the request, or null if not allowed */
+function getCorsOrigin(req) {
+  const origin = req.headers["origin"]
+  if (!origin) return null
+  
+  // Allow all localhost/127.0.0.1 variations during development
+  if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
+    return origin
+  }
+  
+  return CORS_ALLOWED_ORIGINS.has(origin) ? origin : null
+}
+
+/** Standard security headers applied to every response */
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "X-XSS-Protection": "0", // Modern browsers: CSP is preferred; disable legacy XSS filter
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  // I1 fix: Added report-uri directive. Set CSP_REPORT_URI env var in production
+  // to receive violation reports (e.g. https://your-domain/api/csp-report).
+  "Content-Security-Policy":
+    `default-src 'none'; frame-ancestors 'none'${
+      process.env.CSP_REPORT_URI ? `; report-uri ${process.env.CSP_REPORT_URI}` : ""
+    }`,
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
+
+function sendJson(res, statusCode, payload, req, extraHeaders) {
+  const headers = {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  })
+    ...SECURITY_HEADERS,
+  }
+
+  // CORS: only reflect allowed origins (never wildcard)
+  if (req) {
+    const corsOrigin = getCorsOrigin(req)
+    if (corsOrigin) {
+      headers["Access-Control-Allow-Origin"] = corsOrigin
+      headers["Vary"] = "Origin"
+      headers["Access-Control-Allow-Headers"] =
+        "Content-Type, Authorization, x-backend-api-key, x-api-key, x-sentinel-token, x-csrf-token"
+      headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+      headers["Access-Control-Allow-Credentials"] = "true"
+      headers["Access-Control-Max-Age"] = "86400"
+    }
+  }
+
+  // Merge extra headers (e.g. Set-Cookie for CSRF token)
+  if (extraHeaders) {
+    Object.assign(headers, extraHeaders)
+  }
+
+  res.writeHead(statusCode, headers)
   res.end(JSON.stringify(payload))
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 1000000) {
   return new Promise((resolve, reject) => {
     let data = ""
+    let bytes = 0
     req.on("data", (chunk) => {
-      data += chunk
-      if (data.length > 2_000_000) {
-        reject(new Error("Request body too large"))
+      bytes += chunk.length
+      if (bytes > maxBytes) {
+        req.destroy()
+        reject(Object.assign(new Error("Request body too large"), { statusCode: 413 }))
+        return
       }
+      data += chunk
     })
     req.on("end", () => resolve(data))
     req.on("error", reject)
   })
 }
 
-function isAuthorized(req) {
+/**
+ * Parse JSON body. Returns { ok, data, error }.
+ * Callers should check ok before using data.
+ */
+async function parseJsonBody(req, maxBytes = 1000000) {
+  try {
+    const raw = await readBody(req, maxBytes)
+    if (!raw || !raw.trim()) return { ok: true, data: {} }
+    return { ok: true, data: JSON.parse(raw) }
+  } catch (err) {
+    if (err.statusCode === 413) {
+      return { ok: false, error: "Request body too large", statusCode: 413 }
+    }
+    return { ok: false, error: "Invalid JSON in request body", statusCode: 400 }
+  }
+}
+
+/** Legacy API-key check (backward compatible with existing routes) */
+function isApiKeyAuthorized(req) {
   if (!REQUIRE_AUTH) return true
   if (!BACKEND_API_KEY) return false
-  const provided = req.headers["x-backend-api-key"]
+  const provided = req.headers["x-backend-api-key"] || req.headers["x-api-key"]
   return typeof provided === "string" && provided.length > 0 && provided === BACKEND_API_KEY
+}
+
+/**
+ * Combined auth: accepts either legacy API key OR valid JWT.
+ * Returns { authorized: boolean, user?: object }
+ */
+function authorize(req) {
+  // Try JWT first
+  if (SENTINEL_AUTH_ENABLED) {
+    const token = extractToken(req)
+    if (token) {
+      // Check token revocation before verifying
+      if (isTokenRevoked(hashToken(token))) {
+        return { authorized: false }
+      }
+      const jwtResult = authenticateRequest(req)
+      if (jwtResult.authenticated) {
+        return { authorized: true, user: jwtResult.user }
+      }
+    }
+  }
+
+  // Fall back to legacy API key
+  if (isApiKeyAuthorized(req)) {
+    return { authorized: true, user: null } // No user context with API key
+  }
+
+  return { authorized: false }
+}
+
+/** Get client IP for audit logging. Only trusts x-forwarded-for from trusted proxies. */
+function getClientIp(req) {
+  const socketIp = req.socket?.remoteAddress || "unknown"
+
+  // Only trust forwarded headers if the direct connection is from a trusted proxy
+  if (TRUSTED_PROXIES.has(socketIp)) {
+    const forwarded = req.headers["x-forwarded-for"]
+    if (forwarded) {
+      // Take the leftmost (client) IP from the chain
+      return forwarded.split(",")[0]?.trim() || socketIp
+    }
+    const realIp = req.headers["x-real-ip"]
+    if (typeof realIp === "string" && realIp) return realIp.trim()
+  }
+
+  return socketIp
+}
+
+// ─────────────────────────── Humanizer Scoring ───────────────────
+
+function clampScore(value) {
+  return Math.max(1, Math.min(99, Math.round(value)))
+}
+
+function estimateHumanizerMeters(text) {
+  const normalized = String(text || "").trim()
+  if (!normalized) {
+    return { aiLikelihood: 0, similarityRisk: 0 }
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean)
+  const sentences = normalized
+    .split(/[.!?]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const avgSentenceLength =
+    sentences.length > 0 ? words.length / sentences.length : words.length
+  const lexicalDiversity =
+    words.length > 0
+      ? new Set(words.map((w) => w.toLowerCase())).size / words.length
+      : 0
+
+  const repetitivePhraseHits = (
+    normalized.match(
+      /\b(in conclusion|furthermore|moreover|in addition|therefore)\b/gi
+    ) || []
+  ).length
+  const contractionHits = (
+    normalized.match(/\b\w+'(t|re|ve|ll|d|s)\b/gi) || []
+  ).length
+
+  let aiLikelihood = 45
+  if (avgSentenceLength > 24) aiLikelihood += 14
+  if (avgSentenceLength < 10) aiLikelihood += 8
+  if (lexicalDiversity < 0.42) aiLikelihood += 18
+  if (lexicalDiversity > 0.62) aiLikelihood -= 8
+  aiLikelihood += Math.min(14, repetitivePhraseHits * 3)
+  aiLikelihood -= Math.min(8, contractionHits * 1.5)
+
+  const longWordRatio =
+    words.length > 0
+      ? words.filter((w) => w.replace(/[^a-zA-Z]/g, "").length >= 9).length /
+        words.length
+      : 0
+
+  let similarityRisk = 30
+  if (longWordRatio > 0.28) similarityRisk += 14
+  if (lexicalDiversity < 0.45) similarityRisk += 18
+  if (sentences.length > 0 && avgSentenceLength > 22) similarityRisk += 12
+
+  return {
+    aiLikelihood: clampScore(aiLikelihood),
+    similarityRisk: clampScore(similarityRisk),
+  }
+}
+
+// ─────────────────────────── Route Handlers ──────────────────────
+
+/**
+ * POST /api/auth/login
+ * Body: { email, password }
+ * Returns: { ok, token, user, subscription }
+ */
+async function handleLogin(req, res) {
+  // H6: Rate limit login attempts by IP
+  const clientIp = getClientIp(req)
+  const rl = checkRateLimit("login", clientIp)
+  if (!rl.allowed) {
+    return sendJson(res, 429, {
+      ok: false,
+      error: `Too many login attempts. Try again in ${rl.retryAfter} seconds.`,
+    }, req)
+  }
+
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : ""
+  const password = typeof body.password === "string" ? body.password : ""
+
+  if (!email || !password) {
+    return sendJson(res, 400, { ok: false, error: "Email and password are required" }, req)
+  }
+
+  if (!isDbConfigured()) {
+    return sendJson(res, 503, {
+      ok: false,
+      error: "Database not configured. Set NEON_DATABASE_URL.",
+    }, req)
+  }
+
+  if (!isJwtConfigured()) {
+    return sendJson(res, 503, {
+      ok: false,
+      error: "JWT not configured. Set JWT_SECRET env var.",
+    }, req)
+  }
+
+  try {
+    const user = await getUserByEmailForLogin(email)
+    if (!user) {
+      return sendJson(res, 401, { ok: false, error: "Invalid email or password" }, req)
+    }
+
+    if (!user.isActive) {
+      return sendJson(res, 403, { ok: false, error: "Account is deactivated" }, req)
+    }
+
+    // H2 fix: verifyPassword now returns { verified, needsRehash }
+    const pwResult = await verifyPassword(password, user.passwordHash)
+    if (!pwResult.verified) {
+      return sendJson(res, 401, { ok: false, error: "Invalid email or password" }, req)
+    }
+
+    // H2 fix: Re-hash legacy SHA-256 passwords to bcrypt on successful login
+    if (pwResult.needsRehash) {
+      const newHash = await hashPassword(password)
+      await updatePasswordHash(user.id, newHash).catch((err) => {
+        console.warn("[auth/login] bcrypt rehash failed (non-blocking):", err.message)
+      })
+    }
+
+    // Get subscription info for token
+    const subscription = await getUserSubscription(user.id)
+    const tier = subscription?.tier || null
+
+    // Sign JWT
+    const token = signToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId || null,
+      subscriptionTier: tier,
+    })
+
+    // Update last login
+    await updateLastLogin(user.id).catch(() => {})
+
+    // Audit log
+    await writeAuditLog({
+      userId: user.id,
+      action: "LOGIN",
+      resource: "auth",
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    // Return user info (without passwordHash)
+    const { passwordHash: _, ...safeUser } = user
+    // M1 fix: Set CSRF cookie on login
+    const csrfToken = generateCsrfToken()
+    return sendJson(res, 200, {
+      ok: true,
+      token,
+      user: safeUser,
+      subscription: subscription || null,
+    }, req, { "Set-Cookie": csrfSetCookieValue(csrfToken) })
+  } catch (err) {
+    console.error("[auth/login] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/auth/register
+ * Body: { email, password, fullName }
+ * Returns: { ok, token, user }
+ *
+ * C2/C3 fix: Server-side user registration replaces the client-side
+ * unsigned base64 token flow. Password is hashed server-side and a
+ * proper JWT is returned.
+ */
+async function handleRegister(req, res) {
+  // H6: Rate limit registration attempts
+  const clientIp = getClientIp(req)
+  const rl = checkRateLimit("create", clientIp)
+  if (!rl.allowed) {
+    return sendJson(res, 429, {
+      ok: false,
+      error: `Too many requests. Try again in ${rl.retryAfter} seconds.`,
+    }, req)
+  }
+
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : ""
+  const password = typeof body.password === "string" ? body.password : ""
+  const fullName = typeof body.fullName === "string" ? body.fullName.trim() : ""
+
+  if (!email || !password || !fullName) {
+    return sendJson(res, 400, { ok: false, error: "Email, password, and full name are required" }, req)
+  }
+
+  if (password.length < 8) {
+    return sendJson(res, 400, { ok: false, error: "Password must be at least 8 characters" }, req)
+  }
+
+  // Basic email format validation
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return sendJson(res, 400, { ok: false, error: "Invalid email format" }, req)
+  }
+
+  if (fullName.length < 2 || fullName.length > 200) {
+    return sendJson(res, 400, { ok: false, error: "Full name must be 2-200 characters" }, req)
+  }
+
+  if (!isDbConfigured()) {
+    return sendJson(res, 503, { ok: false, error: "Database not configured" }, req)
+  }
+
+  if (!isJwtConfigured()) {
+    return sendJson(res, 503, { ok: false, error: "JWT not configured" }, req)
+  }
+
+  try {
+    const passwordHash = await hashPassword(password)
+    const userId = crypto.randomUUID()
+
+    const newUser = await createUser({
+      id: userId,
+      email,
+      fullName,
+      passwordHash,
+      role: "USER",
+      organizationId: null,
+    })
+
+    if (!newUser) {
+      // ON CONFLICT (email) DO NOTHING → returned null
+      return sendJson(res, 409, { ok: false, error: "An account with this email already exists" }, req)
+    }
+
+    // Sign JWT
+    const token = signToken({
+      userId: newUser.id,
+      email: newUser.email,
+      role: newUser.role,
+      organizationId: newUser.organizationId || null,
+      subscriptionTier: null,
+    })
+
+    // Audit log
+    await writeAuditLog({
+      userId: newUser.id,
+      action: "CREATE",
+      resource: "user",
+      resourceId: newUser.id,
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 201, {
+      ok: true,
+      token,
+      user: newUser,
+    }, req, { "Set-Cookie": csrfSetCookieValue(generateCsrfToken()) })
+  } catch (err) {
+    console.error("[auth/register] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/auth/verify
+ * Header: Authorization: Bearer <token>
+ * Returns: { ok, user }
+ */
+async function handleVerify(req, res) {
+  const authResult = authenticateRequest(req)
+  if (!authResult.authenticated) {
+    return sendJson(res, 401, { ok: false, error: authResult.error }, req)
+  }
+
+  try {
+    // Fetch fresh user data from DB
+    const user = await getUserById(authResult.user.userId)
+    if (!user || !user.isActive) {
+      return sendJson(res, 401, { ok: false, error: "User not found or inactive" }, req)
+    }
+
+    const subscription = await getUserSubscription(user.id)
+
+    return sendJson(res, 200, {
+      ok: true,
+      user,
+      subscription: subscription || null,
+    }, req)
+  } catch (err) {
+    console.error("[auth/verify] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/auth/refresh
+ * Header: Authorization: Bearer <token>
+ * Returns new token if within refresh window.
+ */
+async function handleRefresh(req, res) {
+  const authResult = authenticateRequest(req)
+  if (!authResult.authenticated) {
+    return sendJson(res, 401, { ok: false, error: authResult.error }, req)
+  }
+
+  // Re-fetch user and subscription for fresh data
+  try {
+    const user = await getUserById(authResult.user.userId)
+    if (!user || !user.isActive) {
+      return sendJson(res, 401, { ok: false, error: "User not found or inactive" }, req)
+    }
+
+    const subscription = await getUserSubscription(user.id)
+    const tier = subscription?.tier || null
+
+    const token = signToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId || null,
+      subscriptionTier: tier,
+    })
+
+    return sendJson(res, 200, { ok: true, token }, req)
+  } catch (err) {
+    console.error("[auth/refresh] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/auth/logout
+ * Revokes the current JWT so it cannot be used again.
+ * Header: Authorization: Bearer <token>
+ */
+async function handleLogout(req, res) {
+  const token = extractToken(req)
+  if (!token) {
+    return sendJson(res, 200, { ok: true }, req) // Already logged out
+  }
+
+  const result = verifyToken(token)
+  if (result.valid && result.payload) {
+    // Add token hash to revocation list until it expires
+    revokeToken(hashToken(token), result.payload.exp || Math.floor(Date.now() / 1000) + 86400)
+
+    await writeAuditLog({
+      userId: result.payload.userId,
+      action: "LOGOUT",
+      resource: "auth",
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+  }
+
+  return sendJson(res, 200, { ok: true }, req)
+}
+
+/**
+ * GET /api/sentinel/me
+ * Returns current user profile, subscription, org, and module permissions.
+ */
+async function handleGetMe(req, res, user) {
+  try {
+    const fullUser = await getUserById(user.userId)
+    if (!fullUser) {
+      return sendJson(res, 404, { ok: false, error: "User not found" }, req)
+    }
+
+    const [subscription, modulePermissions] = await Promise.all([
+      getUserSubscription(user.userId),
+      getUserModulePermissions(user.userId),
+    ])
+
+    let organization = null
+    if (fullUser.organizationId) {
+      organization = await getOrganization(fullUser.organizationId).catch(() => null)
+    }
+
+    return sendJson(res, 200, {
+      ok: true,
+      user: fullUser,
+      subscription: subscription || null,
+      organization,
+      modulePermissions,
+    }, req)
+  } catch (err) {
+    console.error("[sentinel/me] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/modules
+ * Returns modules accessible to the current user.
+ */
+async function handleGetModules(req, res, user) {
+  try {
+    const subscription = await getUserSubscription(user.userId)
+    const tier = subscription?.tier || "BASIC"
+    const modulePermissions = await getUserModulePermissions(user.userId)
+
+    // Commander gets all modules
+    if (user.role === "SENTINEL_COMMANDER") {
+      return sendJson(res, 200, {
+        ok: true,
+        modules: Object.values(MODULES),
+        tier,
+      }, req)
+    }
+
+    // Get tier modules and filter by explicit grants where needed
+    const tierModules = TIER_MODULES[tier] || TIER_MODULES.BASIC
+    const accessible = tierModules.filter((mod) => {
+      const check = checkModuleAccess({
+        role: user.role,
+        tier,
+        moduleName: mod,
+        modulePermissions,
+      })
+      return check.allowed
+    })
+
+    return sendJson(res, 200, { ok: true, modules: accessible, tier }, req)
+  } catch (err) {
+    console.error("[sentinel/modules] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/check-access
+ * Body: { moduleName, action? }
+ * Returns: { allowed, reason?, requiredTier? }
+ */
+async function handleCheckAccess(req, res, user) {
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  const moduleName = body.moduleName
+  const action = body.action
+
+  if (!moduleName && !action) {
+    return sendJson(res, 400, {
+      ok: false,
+      error: "Provide moduleName and/or action",
+    }, req)
+  }
+
+  try {
+    // Check module access
+    if (moduleName) {
+      const subscription = await getUserSubscription(user.userId)
+      const tier = subscription?.tier || "BASIC"
+      const modulePermissions = await getUserModulePermissions(user.userId)
+
+      // Phase 3: include org-level module subscription in the check
+      let orgModSub = null
+      if (user.organizationId) {
+        try {
+          orgModSub = await getOrgModuleSubscription(user.organizationId, moduleName)
+        } catch (err) {
+          // Non-fatal: fall back to tier-only check
+          console.warn("[sentinel/check-access] org sub lookup failed:", err.message)
+        }
+      }
+
+      const result = checkModuleAccess({
+        role: user.role,
+        tier,
+        moduleName,
+        modulePermissions,
+        orgModuleSubscription: orgModSub,
+      })
+
+      if (!result.allowed) {
+        return sendJson(res, 200, { ok: true, ...result }, req)
+      }
+    }
+
+    // Check action permission
+    if (action) {
+      const allowed = canPerformAction(user.role, action)
+      if (!allowed) {
+        return sendJson(res, 200, {
+          ok: true,
+          allowed: false,
+          reason: `Role "${user.role}" cannot perform "${action}"`,
+        }, req)
+      }
+    }
+
+    return sendJson(res, 200, { ok: true, allowed: true }, req)
+  } catch (err) {
+    console.error("[sentinel/check-access] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/org/members
+ * Returns members of the user's organization.
+ */
+async function handleGetOrgMembers(req, res, user) {
+  if (!user.organizationId) {
+    return sendJson(res, 400, { ok: false, error: "User not in an organization" }, req)
+  }
+
+  if (!canPerformAction(user.role, ACTIONS.TEAM_VIEW_MEMBERS)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  try {
+    const members = await listOrgUsers(user.organizationId)
+    return sendJson(res, 200, { ok: true, members }, req)
+  } catch (err) {
+    console.error("[sentinel/org/members] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/modules/grant
+ * Body: { userId, moduleName, accessLevel, organizationId?, expiresAt? }
+ */
+async function handleGrantModuleAccess(req, res, actor) {
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  const { userId, moduleName, accessLevel, organizationId, expiresAt } = body
+
+  if (!userId || !moduleName) {
+    return sendJson(res, 400, {
+      ok: false,
+      error: "userId and moduleName are required",
+    }, req)
+  }
+
+  const orgId = organizationId || actor.organizationId
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "organizationId required" }, req)
+  }
+
+  // Phase 3: seat-aware grant check (fetches org module sub + seat count)
+  let orgModSub = null
+  let usedSeats = undefined
+  try {
+    orgModSub = await getOrgModuleSubscription(orgId, moduleName)
+    if (orgModSub) {
+      usedSeats = await countModuleSeats(orgId, moduleName)
+    }
+  } catch (err) {
+    // If DB lookup fails, fall back to role-only check (backward compat)
+    console.warn("[sentinel/modules/grant] seat check failed, falling back:", err.message)
+  }
+
+  const grantCheck = checkModuleGrantWithSeats({
+    actorRole: actor.role,
+    moduleName,
+    orgModuleSubscription: orgModSub,
+    usedSeats,
+  })
+  if (!grantCheck.allowed) {
+    return sendJson(res, 403, { ok: false, error: grantCheck.reason }, req)
+  }
+
+  try {
+    const permId = `perm_${crypto.randomUUID()}`
+    await dbGrantModulePerm({
+      id: permId,
+      userId,
+      organizationId: orgId,
+      moduleName,
+      accessLevel: accessLevel || "READ_WRITE",
+      grantedBy: actor.userId,
+      expiresAt: expiresAt || null,
+    })
+
+    await writeAuditLog({
+      userId: actor.userId,
+      action: "ASSIGN_ROLE",
+      resource: "module-permission",
+      resourceId: permId,
+      metadata: { targetUserId: userId, moduleName, accessLevel, usedSeats, maxSeats: orgModSub?.maxSeats },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 200, { ok: true, permissionId: permId }, req)
+  } catch (err) {
+    console.error("[sentinel/modules/grant] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/modules/revoke
+ * Body: { userId, moduleName, organizationId? }
+ */
+async function handleRevokeModuleAccess(req, res, actor) {
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  const { userId, moduleName, organizationId } = body
+
+  if (!userId || !moduleName) {
+    return sendJson(res, 400, {
+      ok: false,
+      error: "userId and moduleName are required",
+    }, req)
+  }
+
+  if (!hasMinimumRole(actor.role, "ORG_ADMIN")) {
+    return sendJson(res, 403, {
+      ok: false,
+      error: "Only ORG_ADMIN or higher can revoke module access",
+    }, req)
+  }
+
+  const orgId = organizationId || actor.organizationId
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "organizationId required" }, req)
+  }
+
+  try {
+    await dbRevokeModulePerm(userId, orgId, moduleName)
+
+    await writeAuditLog({
+      userId: actor.userId,
+      action: "DELETE",
+      resource: "module-permission",
+      metadata: { targetUserId: userId, moduleName },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 200, { ok: true }, req)
+  } catch (err) {
+    console.error("[sentinel/modules/revoke] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/audit
+ * Query: ?limit=100&userId=...
+ * Returns recent audit log entries.
+ */
+async function handleGetAuditLogs(req, res, user, url) {
+  if (!canPerformAction(user.role, ACTIONS.AUDIT_VIEW)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  try {
+    const limit = Number(url.searchParams.get("limit")) || 100
+    const offset = Number(url.searchParams.get("offset")) || 0
+    const filterUserId = url.searchParams.get("userId") || undefined
+    const filterAction = url.searchParams.get("action") || undefined
+    const filterResource = url.searchParams.get("resource") || undefined
+    const filterResourceId = url.searchParams.get("resourceId") || undefined
+    const filterSuccess = url.searchParams.has("success")
+      ? url.searchParams.get("success") === "true"
+      : undefined
+    const fromTs = url.searchParams.get("from") ? Number(url.searchParams.get("from")) : undefined
+    const toTs = url.searchParams.get("to") ? Number(url.searchParams.get("to")) : undefined
+
+    const { logs, total } = await getAuditLogsAdvanced({
+      userId: filterUserId,
+      action: filterAction,
+      resource: filterResource,
+      resourceId: filterResourceId,
+      success: filterSuccess,
+      fromTs,
+      toTs,
+      limit: Math.min(limit, 500),
+      offset,
+    })
+
+    return sendJson(res, 200, { ok: true, logs, total, limit, offset }, req)
+  } catch (err) {
+    console.error("[sentinel/audit] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/audit/stats
+ * Query: ?from=...&to=...&userId=...
+ * Returns audit log aggregation stats (by action, resource, day).
+ * Requires TEAM_ADMIN+.
+ */
+async function handleGetAuditStats(req, res, user, url) {
+  if (!canPerformAction(user.role, ACTIONS.AUDIT_VIEW)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  try {
+    const fromTs = url.searchParams.get("from") ? Number(url.searchParams.get("from")) : undefined
+    const toTs = url.searchParams.get("to") ? Number(url.searchParams.get("to")) : undefined
+    const userId = url.searchParams.get("userId") || undefined
+
+    const stats = await getAuditStats({ fromTs, toTs, userId })
+    return sendJson(res, 200, { ok: true, ...stats }, req)
+  } catch (err) {
+    console.error("[sentinel/audit/stats] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/admin/stats
+ * System overview stats for the admin console.
+ * Requires SENTINEL_COMMANDER.
+ */
+async function handleGetSystemStats(req, res, user) {
+  if (!hasMinimumRole(user.role, "SENTINEL_COMMANDER")) {
+    return sendJson(res, 403, { ok: false, error: "Only Sentinel Commander can view system stats" }, req)
+  }
+
+  try {
+    const stats = await getSystemStats()
+    return sendJson(res, 200, { ok: true, ...stats }, req)
+  } catch (err) {
+    console.error("[sentinel/admin/stats] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+// ──────────────── Org Module Subscription Handlers (Phase 3) ─────
+
+/**
+ * GET /api/sentinel/org/subscriptions
+ * Query: ?orgId=...&status=ACTIVE
+ * Lists all module subscriptions for an org.
+ * ORG_ADMIN+ or own org.
+ */
+async function handleListOrgModSubs(req, res, user, url) {
+  const orgId = url.searchParams.get("orgId") || user.organizationId
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "orgId required" }, req)
+  }
+
+  // H8 fix: Only SENTINEL_COMMANDER can view other org subscriptions
+  if (orgId !== user.organizationId && !hasMinimumRole(user.role, "SENTINEL_COMMANDER")) {
+    return sendJson(res, 403, { ok: false, error: "Cannot view other org subscriptions" }, req)
+  }
+
+  try {
+    const status = url.searchParams.get("status") || undefined
+    const subs = await listOrgModuleSubscriptions(orgId, { status })
+    return sendJson(res, 200, { ok: true, subscriptions: subs }, req)
+  } catch (err) {
+    console.error("[sentinel/org/subscriptions] list error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/org/subscriptions/:module
+ * Get a single org module subscription.
+ */
+async function handleGetOrgModSub(req, res, user, moduleName) {
+  const orgId = user.organizationId
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "User has no organization" }, req)
+  }
+
+  try {
+    const sub = await getOrgModuleSubscription(orgId, moduleName)
+    if (!sub) {
+      return sendJson(res, 404, { ok: false, error: `No subscription for module "${moduleName}"` }, req)
+    }
+
+    // Enrich with seat info
+    const usedSeats = await countModuleSeats(orgId, moduleName)
+    return sendJson(res, 200, { ok: true, subscription: { ...sub, usedSeats } }, req)
+  } catch (err) {
+    console.error("[sentinel/org/subscriptions] get error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/org/subscriptions
+ * Create/provision a module subscription for an org.
+ * Requires ORG_ADMIN+ (or SENTINEL_COMMANDER for cross-org).
+ * Body: { organizationId?, moduleName, tier, maxSeats, expiresAt?, autoRenew?, gracePeriodDays?, metadata? }
+ */
+async function handleCreateOrgModSub(req, res, actor) {
+  if (!canPerformAction(actor.role, ACTIONS.SUB_MANAGE)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions to manage subscriptions" }, req)
+  }
+
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  const { moduleName, tier, maxSeats, expiresAt, autoRenew, gracePeriodDays, metadata } = body
+  const orgId = body.organizationId || actor.organizationId
+
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "organizationId required" }, req)
+  }
+  if (!moduleName) {
+    return sendJson(res, 400, { ok: false, error: "moduleName required" }, req)
+  }
+
+  // Cross-org provisioning requires SENTINEL_COMMANDER
+  if (orgId !== actor.organizationId && !hasMinimumRole(actor.role, "SENTINEL_COMMANDER")) {
+    return sendJson(res, 403, { ok: false, error: "Only Sentinel Commander can provision cross-org subscriptions" }, req)
+  }
+
+  try {
+    const id = await dbCreateOrgModSub({
+      organizationId: orgId,
+      moduleName,
+      tier: tier || "BASIC",
+      maxSeats: maxSeats || 1,
+      expiresAt: expiresAt || null,
+      autoRenew: autoRenew ?? false,
+      gracePeriodDays: gracePeriodDays ?? 7,
+      provisionedBy: actor.userId,
+      metadata: metadata || {},
+    })
+
+    await writeAuditLog({
+      userId: actor.userId,
+      action: "CREATE",
+      resource: "org-module-subscription",
+      resourceId: id,
+      metadata: { orgId, moduleName, tier: tier || "BASIC", maxSeats: maxSeats || 1 },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 201, { ok: true, id }, req)
+  } catch (err) {
+    console.error("[sentinel/org/subscriptions] create error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * PUT /api/sentinel/org/subscriptions/:module
+ * Update an existing org module subscription.
+ * Requires ORG_ADMIN+.
+ * Body: { tier?, maxSeats?, expiresAt?, autoRenew?, gracePeriodDays?, metadata? }
+ */
+async function handleUpdateOrgModSub(req, res, actor, moduleName) {
+  if (!canPerformAction(actor.role, ACTIONS.SUB_MANAGE)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions to manage subscriptions" }, req)
+  }
+
+  const orgId = actor.organizationId
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "User has no organization" }, req)
+  }
+
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  const updates = {}
+  if (body.tier !== undefined) updates.tier = body.tier
+  if (body.maxSeats !== undefined) updates.maxSeats = body.maxSeats
+  if (body.status !== undefined) updates.status = body.status
+  if (body.expiresAt !== undefined) updates.expiresAt = body.expiresAt
+  if (body.autoRenew !== undefined) updates.autoRenew = body.autoRenew
+  if (body.gracePeriodDays !== undefined) updates.gracePeriodDays = body.gracePeriodDays
+  if (body.metadata !== undefined) updates.metadata = body.metadata
+
+  if (Object.keys(updates).length === 0) {
+    return sendJson(res, 400, { ok: false, error: "No valid update fields provided" }, req)
+  }
+
+  try {
+    const ok = await dbUpdateOrgModSub(orgId, moduleName, updates)
+    if (!ok) {
+      return sendJson(res, 404, { ok: false, error: `No subscription found for module "${moduleName}"` }, req)
+    }
+
+    await writeAuditLog({
+      userId: actor.userId,
+      action: "UPDATE",
+      resource: "org-module-subscription",
+      metadata: { orgId, moduleName, updates },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 200, { ok: true }, req)
+  } catch (err) {
+    console.error("[sentinel/org/subscriptions] update error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * DELETE /api/sentinel/org/subscriptions/:module
+ * Cancel an org module subscription.
+ * Requires ORG_ADMIN+.
+ */
+async function handleCancelOrgModSub(req, res, actor, moduleName) {
+  if (!canPerformAction(actor.role, ACTIONS.SUB_MANAGE)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions to manage subscriptions" }, req)
+  }
+
+  const orgId = actor.organizationId
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "User has no organization" }, req)
+  }
+
+  try {
+    const ok = await dbCancelOrgModSub(orgId, moduleName, actor.userId)
+    if (!ok) {
+      return sendJson(res, 404, { ok: false, error: `No active subscription for module "${moduleName}" to cancel` }, req)
+    }
+
+    await writeAuditLog({
+      userId: actor.userId,
+      action: "DELETE",
+      resource: "org-module-subscription",
+      metadata: { orgId, moduleName },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 200, { ok: true }, req)
+  } catch (err) {
+    console.error("[sentinel/org/subscriptions] cancel error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/org/subscriptions/:module/seats
+ * Get seat usage for an org module.
+ */
+async function handleGetModuleSeats(req, res, user, moduleName) {
+  const orgId = user.organizationId
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: "User has no organization" }, req)
+  }
+
+  try {
+    const result = await checkModuleSeatsAvailable(orgId, moduleName)
+    return sendJson(res, 200, { ok: true, ...result }, req)
+  } catch (err) {
+    console.error("[sentinel/org/subscriptions] seats error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/admin/expiring-subscriptions?days=30
+ * Lists subscriptions expiring within N days.
+ * Requires SENTINEL_COMMANDER.
+ */
+async function handleGetExpiringSubs(req, res, user, url) {
+  if (!hasMinimumRole(user.role, "SENTINEL_COMMANDER")) {
+    return sendJson(res, 403, { ok: false, error: "Only Sentinel Commander can view expiring subscriptions" }, req)
+  }
+
+  try {
+    const days = Number(url.searchParams.get("days")) || 30
+    const subs = await getExpiringSubscriptions(days)
+    return sendJson(res, 200, { ok: true, subscriptions: subs }, req)
+  } catch (err) {
+    console.error("[sentinel/admin/expiring] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/admin/process-expirations
+ * Manually trigger expiration processing.
+ * Requires SENTINEL_COMMANDER.
+ */
+async function handleProcessExpirations(req, res, user) {
+  if (!hasMinimumRole(user.role, "SENTINEL_COMMANDER")) {
+    return sendJson(res, 403, { ok: false, error: "Only Sentinel Commander can process expirations" }, req)
+  }
+
+  try {
+    const result = await processExpiredSubscriptions()
+    return sendJson(res, 200, { ok: true, ...result }, req)
+  } catch (err) {
+    console.error("[sentinel/admin/process-expirations] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+// ─────────────────────────── Report Handlers ─────────────────────
+
+/**
+ * GET /api/sentinel/reports?projectId=...&orgId=...&status=...
+ */
+async function handleListReports(req, res, user, url) {
+  try {
+    const projectId = url.searchParams.get("projectId")
+    const orgId = url.searchParams.get("orgId") || user.organizationId
+    const status = url.searchParams.get("status") || undefined
+    const limit = Number(url.searchParams.get("limit")) || 50
+
+    if (!projectId && !orgId) {
+      return sendJson(res, 400, { ok: false, error: "projectId or orgId required" }, req)
+    }
+
+    const reports = projectId
+      ? await listReportsByProject(projectId, { status, limit })
+      : await listReportsByOrg(orgId, { status, limit })
+
+    // Filter by read permission: readers can only see PUBLISHED reports
+    const filtered = user.role === "SENTINEL_COMMANDER" || hasMinimumRole(user.role, "TEAM_MEMBER")
+      ? reports
+      : reports.filter((r) => r.status === "PUBLISHED")
+
+    return sendJson(res, 200, { ok: true, reports: filtered }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] list error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * H7 fix: Org-scoping check for reports.
+ * Returns true if the user is allowed to access the report (same org or SENTINEL_COMMANDER).
+ * Returns false and sends 403 if not.
+ */
+function checkReportOrgAccess(req, res, user, report) {
+  if (user.role === "SENTINEL_COMMANDER") return true
+  if (report.organizationId && report.organizationId !== user.organizationId) {
+    sendJson(res, 403, { ok: false, error: "Access denied: report belongs to a different organization" }, req)
+    return false
+  }
+  return true
+}
+
+/**
+ * GET /api/sentinel/reports/:id
+ */
+async function handleGetReport(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    // Basic readers can only see published reports
+    if (report.status !== "PUBLISHED" && !hasMinimumRole(user.role, "TEAM_MEMBER")) {
+      return sendJson(res, 403, { ok: false, error: "Access denied" }, req)
+    }
+
+    return sendJson(res, 200, { ok: true, report }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] get error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/reports
+ * Body: { projectId, organizationId?, title, reportType?, sections?, brandingId? }
+ */
+async function handleCreateReport(req, res, user) {
+  if (!canPerformAction(user.role, ACTIONS.REPORT_CREATE)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+  if (!body.projectId || !body.title) {
+    return sendJson(res, 400, { ok: false, error: "projectId and title are required" }, req)
+  }
+
+  // L4: Input length validation
+  if (typeof body.title === "string" && body.title.length > 500) {
+    return sendJson(res, 400, { ok: false, error: "Title must be 500 characters or fewer" }, req)
+  }
+  if (Array.isArray(body.sections) && body.sections.length > 100) {
+    return sendJson(res, 400, { ok: false, error: "Sections array must have 100 elements or fewer" }, req)
+  }
+
+  try {
+    const reportId = `rpt_${crypto.randomUUID()}`
+    await dbCreateReport({
+      id: reportId,
+      projectId: body.projectId,
+      organizationId: body.organizationId || user.organizationId,
+      title: body.title,
+      reportType: body.reportType || "CUSTOM",
+      sections: body.sections || [],
+      brandingId: body.brandingId || null,
+      generatedBy: user.userId,
+      exportedFormats: [],
+    })
+
+    await writeAuditLog({
+      userId: user.userId,
+      action: "CREATE",
+      resource: "ngo-report",
+      resourceId: reportId,
+      metadata: { title: body.title, projectId: body.projectId },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    const report = await getReportById(reportId)
+    return sendJson(res, 201, { ok: true, report }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] create error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * PUT /api/sentinel/reports/:id
+ * Body: { title?, sections? }
+ */
+async function handleUpdateReport(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    const policyCheck = checkReportAction({
+      role: user.role,
+      action: ACTIONS.REPORT_UPDATE,
+      reportState: report.status.toLowerCase(),
+      userId: user.userId,
+      reportOwnerId: report.generatedBy,
+    })
+    if (!policyCheck.allowed) {
+      return sendJson(res, 403, { ok: false, error: policyCheck.reason }, req)
+    }
+
+    const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+
+    // L4: Input length validation
+    if (typeof body.title === "string" && body.title.length > 500) {
+      return sendJson(res, 400, { ok: false, error: "Title must be 500 characters or fewer" }, req)
+    }
+    if (Array.isArray(body.sections) && body.sections.length > 100) {
+      return sendJson(res, 400, { ok: false, error: "Sections array must have 100 elements or fewer" }, req)
+    }
+
+    const updated = await dbUpdateReportContent(reportId, {
+      title: body.title || null,
+      sections: body.sections || null,
+      updatedBy: user.userId,
+    })
+
+    if (!updated) {
+      return sendJson(res, 409, { ok: false, error: "Report cannot be updated in current state" }, req)
+    }
+
+    const fresh = await getReportById(reportId)
+    return sendJson(res, 200, { ok: true, report: fresh }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] update error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/reports/:id/submit
+ */
+async function handleSubmitReport(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    const policyCheck = checkReportAction({
+      role: user.role,
+      action: ACTIONS.REPORT_SUBMIT,
+      reportState: report.status.toLowerCase(),
+      userId: user.userId,
+      reportOwnerId: report.generatedBy,
+    })
+    if (!policyCheck.allowed) {
+      return sendJson(res, 403, { ok: false, error: policyCheck.reason }, req)
+    }
+
+    const ok = await dbSubmitReport(reportId, user.userId)
+    if (!ok) {
+      return sendJson(res, 409, { ok: false, error: "Report cannot be submitted in current state" }, req)
+    }
+
+    await writeAuditLog({
+      userId: user.userId,
+      action: "SUBMIT",
+      resource: "ngo-report",
+      resourceId: reportId,
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    const fresh = await getReportById(reportId)
+    return sendJson(res, 200, { ok: true, report: fresh }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] submit error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/reports/:id/approve-sign
+ * Approves the report and generates a server-side digital signature.
+ */
+async function handleApproveSignReport(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    const policyCheck = checkReportAction({
+      role: user.role,
+      action: ACTIONS.REPORT_APPROVE,
+      reportState: report.status.toLowerCase(),
+      userId: user.userId,
+      reportOwnerId: report.generatedBy,
+    })
+    if (!policyCheck.allowed) {
+      return sendJson(res, 403, { ok: false, error: policyCheck.reason }, req)
+    }
+
+    // Generate digital signature
+    const contentHash = hashReportContent(JSON.stringify(report.sections))
+    const timestamp = Date.now()
+    const signatureHash = signReport({
+      reportId,
+      contentHash,
+      signerId: user.userId,
+      timestamp,
+    })
+
+    const ok = await dbApproveAndSign(reportId, {
+      approvedBy: user.userId,
+      signatureHash,
+    })
+    if (!ok) {
+      return sendJson(res, 409, { ok: false, error: "Report cannot be approved in current state" }, req)
+    }
+
+    await writeAuditLog({
+      userId: user.userId,
+      action: "APPROVE",
+      resource: "ngo-report",
+      resourceId: reportId,
+      metadata: { signatureHash, contentHash },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    const fresh = await getReportById(reportId)
+    return sendJson(res, 200, {
+      ok: true,
+      report: fresh,
+      signature: {
+        hash: signatureHash,
+        contentHash,
+        signedBy: user.userId,
+        signedAt: timestamp,
+      },
+    }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] approve-sign error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/reports/:id/publish
+ */
+async function handlePublishReport(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    const policyCheck = checkReportAction({
+      role: user.role,
+      action: ACTIONS.REPORT_PUBLISH,
+      reportState: report.status.toLowerCase(),
+      userId: user.userId,
+      reportOwnerId: report.generatedBy,
+    })
+    if (!policyCheck.allowed) {
+      return sendJson(res, 403, { ok: false, error: policyCheck.reason }, req)
+    }
+
+    const ok = await dbPublishReport(reportId, user.userId)
+    if (!ok) {
+      return sendJson(res, 409, { ok: false, error: "Report cannot be published in current state" }, req)
+    }
+
+    await writeAuditLog({
+      userId: user.userId,
+      action: "PUBLISH",
+      resource: "ngo-report",
+      resourceId: reportId,
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    const fresh = await getReportById(reportId)
+    return sendJson(res, 200, { ok: true, report: fresh }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] publish error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/reports/:id/revert
+ * Body: { comment? }
+ */
+async function handleRevertReport(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    const policyCheck = checkReportAction({
+      role: user.role,
+      action: ACTIONS.REPORT_REVERT,
+      reportState: report.status.toLowerCase(),
+      userId: user.userId,
+      reportOwnerId: report.generatedBy,
+    })
+    if (!policyCheck.allowed) {
+      return sendJson(res, 403, { ok: false, error: policyCheck.reason }, req)
+    }
+
+    const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+    const ok = await dbRevertReport(reportId, user.userId, body.comment)
+    if (!ok) {
+      return sendJson(res, 409, { ok: false, error: "Report cannot be reverted in current state" }, req)
+    }
+
+    await writeAuditLog({
+      userId: user.userId,
+      action: "REVERT",
+      resource: "ngo-report",
+      resourceId: reportId,
+      metadata: { comment: body.comment, previousStatus: report.status },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    const fresh = await getReportById(reportId)
+    return sendJson(res, 200, { ok: true, report: fresh }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] revert error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * DELETE /api/sentinel/reports/:id
+ */
+async function handleDeleteReport(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    const policyCheck = checkReportAction({
+      role: user.role,
+      action: ACTIONS.REPORT_DELETE,
+      reportState: report.status.toLowerCase(),
+      userId: user.userId,
+      reportOwnerId: report.generatedBy,
+    })
+    if (!policyCheck.allowed) {
+      return sendJson(res, 403, { ok: false, error: policyCheck.reason }, req)
+    }
+
+    const ok = await dbDeleteReport(reportId)
+    if (!ok) {
+      return sendJson(res, 409, { ok: false, error: "Report cannot be deleted in current state" }, req)
+    }
+
+    await writeAuditLog({
+      userId: user.userId,
+      action: "DELETE",
+      resource: "ngo-report",
+      resourceId: reportId,
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 200, { ok: true }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] delete error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * GET /api/sentinel/reports/:id/transitions
+ */
+async function handleGetReportTransitions(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    const transitions = await getReportTransitions(reportId)
+    return sendJson(res, 200, { ok: true, transitions }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] transitions error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+/**
+ * POST /api/sentinel/reports/:id/verify-signature
+ * Verifies that the report's digital signature is still valid
+ * (i.e., the content has not been tampered with).
+ */
+async function handleVerifySignature(req, res, user, reportId) {
+  try {
+    const report = await getReportById(reportId)
+    if (!report) {
+      return sendJson(res, 404, { ok: false, error: "Report not found" }, req)
+    }
+
+    // H7: Org-scoping — prevent cross-org access
+    if (!checkReportOrgAccess(req, res, user, report)) return
+
+    if (!report.signatureHash || !report.signedBy || !report.signedAt) {
+      return sendJson(res, 200, {
+        ok: true,
+        verified: false,
+        reason: "Report has not been signed",
+      }, req)
+    }
+
+    const contentHash = hashReportContent(JSON.stringify(report.sections))
+    const verified = verifyReportSignature(
+      {
+        reportId,
+        contentHash,
+        signerId: report.signedBy,
+        timestamp: report.signedAt,
+      },
+      report.signatureHash
+    )
+
+    return sendJson(res, 200, {
+      ok: true,
+      verified,
+      contentHash,
+      signatureHash: report.signatureHash,
+      signedBy: report.signedBy,
+      signedAt: report.signedAt,
+      reason: verified ? "Signature is valid — content has not been tampered with" : "SIGNATURE INVALID — content may have been modified after signing",
+    }, req)
+  } catch (err) {
+    console.error("[sentinel/reports] verify-signature error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
+// ─────────────────────────── Request Router ──────────────────────
+
+const extToMime = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`)
+  const method = req.method
+  const path = url.pathname
 
-  if (req.method === "OPTIONS") {
-    return sendJson(res, 200, { ok: true })
+  console.log(`[HTTP] ${method} ${path}`)
+
+  // ── CORS preflight ──
+  if (method === "OPTIONS") {
+    return sendJson(res, 200, { ok: true }, req)
   }
 
-  if (req.method === "GET" && url.pathname === "/health") {
-    return sendJson(res, 200, { ok: true, service: "llm-backend", version: "phase2" })
+  // ── Health (M9 fix: minimal info for unauthenticated endpoint) ──
+  if (method === "GET" && path === "/health") {
+    return sendJson(res, 200, {
+      ok: true,
+      service: "llm-backend",
+    }, req)
   }
 
-  if (req.method === "GET" && url.pathname === "/api/providers/status") {
-    if (!isAuthorized(req)) {
-      return sendJson(res, 401, { ok: false, error: "Unauthorized" })
+  // ── M1 fix: CSRF double-submit cookie validation ──
+  // State-changing methods on authenticated routes must have matching
+  // X-CSRF-Token header and __csrf cookie. Exempt: login, register, health.
+  if (SENTINEL_AUTH_ENABLED && !validateCsrf(req, method, path)) {
+    return sendJson(res, 403, { ok: false, error: "CSRF validation failed" }, req)
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  SENTINEL AUTH ROUTES (feature-flagged)
+  // ════════════════════════════════════════════════════════════════
+
+  if (SENTINEL_AUTH_ENABLED) {
+    // ── POST /api/auth/login ──
+    if (method === "POST" && path === "/api/auth/login") {
+      return handleLogin(req, res)
+    }
+
+    // ── POST /api/auth/register (C2/C3 fix) ──
+    if (method === "POST" && path === "/api/auth/register") {
+      return handleRegister(req, res)
+    }
+
+    // ── GET /api/auth/verify ──
+    if (method === "GET" && path === "/api/auth/verify") {
+      return handleVerify(req, res)
+    }
+
+    // ── POST /api/auth/refresh ──
+    if (method === "POST" && path === "/api/auth/refresh") {
+      return handleRefresh(req, res)
+    }
+
+    // ── POST /api/auth/logout (H9 fix) ──
+    if (method === "POST" && path === "/api/auth/logout") {
+      return handleLogout(req, res)
+    }
+
+    // ── Sentinel API routes (all require JWT) ──
+    if (path.startsWith("/api/sentinel/")) {
+      const authResult = authenticateRequest(req)
+      if (!authResult.authenticated) {
+        return sendJson(res, 401, { ok: false, error: authResult.error }, req)
+      }
+
+      // H9 fix: Check token revocation in sentinel auth block
+      const token = extractToken(req)
+      if (token && isTokenRevoked(hashToken(token))) {
+        return sendJson(res, 401, { ok: false, error: "Token has been revoked" }, req)
+      }
+
+      const user = authResult.user
+
+      // H6 fix: API rate limiting for sentinel routes
+      const rlKey = user.userId || getClientIp(req)
+      const apiRl = checkRateLimit("api", rlKey)
+      if (!apiRl.allowed) {
+        res.setHeader("Retry-After", String(apiRl.retryAfter))
+        return sendJson(res, 429, { ok: false, error: "Rate limit exceeded", retryAfter: apiRl.retryAfter }, req)
+      }
+      // Stricter limit on mutation operations
+      if (method === "POST" || method === "PUT" || method === "DELETE") {
+        const createRl = checkRateLimit("create", rlKey)
+        if (!createRl.allowed) {
+          res.setHeader("Retry-After", String(createRl.retryAfter))
+          return sendJson(res, 429, { ok: false, error: "Rate limit exceeded for mutations", retryAfter: createRl.retryAfter }, req)
+        }
+      }
+
+      // GET /api/sentinel/me
+      if (method === "GET" && path === "/api/sentinel/me") {
+        return handleGetMe(req, res, user)
+      }
+
+      // GET /api/sentinel/diagnostics (M9 fix: moved from /health, requires SENTINEL_COMMANDER)
+      if (method === "GET" && path === "/api/sentinel/diagnostics") {
+        if (!hasMinimumRole(user.role, "SENTINEL_COMMANDER")) {
+          return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+        }
+        return sendJson(res, 200, {
+          ok: true,
+          service: "llm-backend",
+          version: "phase5.1",
+          sentinelAuth: SENTINEL_AUTH_ENABLED,
+          dbConfigured: isDbConfigured(),
+          jwtConfigured: isJwtConfigured(),
+        }, req)
+      }
+
+      // GET /api/sentinel/modules
+      if (method === "GET" && path === "/api/sentinel/modules") {
+        return handleGetModules(req, res, user)
+      }
+
+      // POST /api/sentinel/check-access
+      if (method === "POST" && path === "/api/sentinel/check-access") {
+        return handleCheckAccess(req, res, user)
+      }
+
+      // GET /api/sentinel/org/members
+      if (method === "GET" && path === "/api/sentinel/org/members") {
+        return handleGetOrgMembers(req, res, user)
+      }
+
+      // POST /api/sentinel/modules/grant
+      if (method === "POST" && path === "/api/sentinel/modules/grant") {
+        return handleGrantModuleAccess(req, res, user)
+      }
+
+      // POST /api/sentinel/modules/revoke
+      if (method === "POST" && path === "/api/sentinel/modules/revoke") {
+        return handleRevokeModuleAccess(req, res, user)
+      }
+
+      // GET /api/sentinel/audit/stats (must come before /api/sentinel/audit)
+      if (method === "GET" && path === "/api/sentinel/audit/stats") {
+        return handleGetAuditStats(req, res, user, url)
+      }
+
+      // GET /api/sentinel/audit
+      if (method === "GET" && path === "/api/sentinel/audit") {
+        return handleGetAuditLogs(req, res, user, url)
+      }
+
+      // GET /api/sentinel/admin/stats
+      if (method === "GET" && path === "/api/sentinel/admin/stats") {
+        return handleGetSystemStats(req, res, user)
+      }
+
+      // ── Org Module Subscription Routes (Phase 3) ──
+
+      // GET /api/sentinel/org/subscriptions
+      if (method === "GET" && path === "/api/sentinel/org/subscriptions") {
+        return handleListOrgModSubs(req, res, user, url)
+      }
+
+      // GET /api/sentinel/org/subscriptions/:module/seats
+      if (method === "GET" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+\/seats$/)) {
+        const mod = path.split("/")[5]
+        return handleGetModuleSeats(req, res, user, mod)
+      }
+
+      // GET /api/sentinel/org/subscriptions/:module
+      if (method === "GET" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/) && !path.endsWith("/seats")) {
+        const mod = path.split("/")[5]
+        return handleGetOrgModSub(req, res, user, mod)
+      }
+
+      // POST /api/sentinel/org/subscriptions
+      if (method === "POST" && path === "/api/sentinel/org/subscriptions") {
+        return handleCreateOrgModSub(req, res, user)
+      }
+
+      // PUT /api/sentinel/org/subscriptions/:module
+      if (method === "PUT" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/)) {
+        const mod = path.split("/")[5]
+        return handleUpdateOrgModSub(req, res, user, mod)
+      }
+
+      // DELETE /api/sentinel/org/subscriptions/:module
+      if (method === "DELETE" && path.match(/^\/api\/sentinel\/org\/subscriptions\/[^/]+$/)) {
+        const mod = path.split("/")[5]
+        return handleCancelOrgModSub(req, res, user, mod)
+      }
+
+      // GET /api/sentinel/admin/expiring-subscriptions
+      if (method === "GET" && path === "/api/sentinel/admin/expiring-subscriptions") {
+        return handleGetExpiringSubs(req, res, user, url)
+      }
+
+      // POST /api/sentinel/admin/process-expirations
+      if (method === "POST" && path === "/api/sentinel/admin/process-expirations") {
+        return handleProcessExpirations(req, res, user)
+      }
+
+      // ── Report Routes ──
+
+      // GET /api/sentinel/reports?projectId=...&orgId=...&status=...
+      if (method === "GET" && path === "/api/sentinel/reports") {
+        return handleListReports(req, res, user, url)
+      }
+
+      // GET /api/sentinel/reports/:id
+      if (method === "GET" && path.startsWith("/api/sentinel/reports/") && !path.includes("/transitions")) {
+        const reportId = path.split("/api/sentinel/reports/")[1]
+        return handleGetReport(req, res, user, reportId)
+      }
+
+      // POST /api/sentinel/reports (create draft)
+      if (method === "POST" && path === "/api/sentinel/reports") {
+        return handleCreateReport(req, res, user)
+      }
+
+      // PUT /api/sentinel/reports/:id (update draft content)
+      if (method === "PUT" && path.startsWith("/api/sentinel/reports/")) {
+        const reportId = path.split("/api/sentinel/reports/")[1]
+        return handleUpdateReport(req, res, user, reportId)
+      }
+
+      // POST /api/sentinel/reports/:id/submit
+      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/submit$/)) {
+        const reportId = path.split("/")[4]
+        return handleSubmitReport(req, res, user, reportId)
+      }
+
+      // POST /api/sentinel/reports/:id/approve-sign
+      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/approve-sign$/)) {
+        const reportId = path.split("/")[4]
+        return handleApproveSignReport(req, res, user, reportId)
+      }
+
+      // POST /api/sentinel/reports/:id/publish
+      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/publish$/)) {
+        const reportId = path.split("/")[4]
+        return handlePublishReport(req, res, user, reportId)
+      }
+
+      // POST /api/sentinel/reports/:id/revert
+      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/revert$/)) {
+        const reportId = path.split("/")[4]
+        return handleRevertReport(req, res, user, reportId)
+      }
+
+      // DELETE /api/sentinel/reports/:id
+      if (method === "DELETE" && path.startsWith("/api/sentinel/reports/")) {
+        const reportId = path.split("/api/sentinel/reports/")[1]
+        return handleDeleteReport(req, res, user, reportId)
+      }
+
+      // GET /api/sentinel/reports/:id/transitions
+      if (method === "GET" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/transitions$/)) {
+        const reportId = path.split("/")[4]
+        return handleGetReportTransitions(req, res, user, reportId)
+      }
+
+      // POST /api/sentinel/reports/:id/verify-signature
+      if (method === "POST" && path.match(/^\/api\/sentinel\/reports\/[^/]+\/verify-signature$/)) {
+        const reportId = path.split("/")[4]
+        return handleVerifySignature(req, res, user, reportId)
+      }
+
+      return sendJson(res, 404, { error: "Sentinel route not found" }, req)
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  LEGACY ROUTES (backward compatible — API key or JWT)
+  // ════════════════════════════════════════════════════════════════
+
+  // ── GET /api/providers/status ──
+  if (method === "GET" && path === "/api/providers/status") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
     }
 
     return sendJson(res, 200, {
       ok: true,
       service: "llm-backend",
-      version: "phase3.2",
+      version: "phase5.1",
       runtime: {
         host: HOST,
         port: PORT,
@@ -65,19 +2230,24 @@ const server = http.createServer(async (req, res) => {
       },
       auth: {
         required: REQUIRE_AUTH,
+        sentinelEnabled: SENTINEL_AUTH_ENABLED,
+        authenticatedUser: auth.user?.email || null,
       },
       ...getProviderStatus(),
-    })
+    }, req)
   }
 
-  if (req.method === "POST" && url.pathname === "/api/llm/generate") {
-    if (!isAuthorized(req)) {
-      return sendJson(res, 401, { error: "Unauthorized" })
+  // ── POST /api/llm/generate ──
+  if (method === "POST" && path === "/api/llm/generate") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { error: "Unauthorized" }, req)
     }
 
     try {
-      const rawBody = await readBody(req)
-      const body = rawBody ? JSON.parse(rawBody) : {}
+      const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : ""
       const model = typeof body.model === "string" ? body.model : undefined
       const parseJson = Boolean(body.parseJson)
@@ -86,7 +2256,7 @@ const server = http.createServer(async (req, res) => {
         : undefined
 
       if (!prompt) {
-        return sendJson(res, 400, { error: "Missing required field: prompt" })
+        return sendJson(res, 400, { error: "Missing required field: prompt" }, req)
       }
 
       const result = await generateWithFallback({ prompt, model, providers })
@@ -99,14 +2269,14 @@ const server = http.createServer(async (req, res) => {
             raw: parsed,
             provider: result.provider,
             model: result.model,
-          })
+          }, req)
         } catch {
           return sendJson(res, 200, {
             text: result.text,
             raw: result.text,
             provider: result.provider,
             model: result.model,
-          })
+          }, req)
         }
       }
 
@@ -114,17 +2284,289 @@ const server = http.createServer(async (req, res) => {
         text: result.text,
         provider: result.provider,
         model: result.model,
-      })
+      }, req)
     } catch (error) {
+      console.error("[llm/generate] error:", error instanceof Error ? error.message : error)
       return sendJson(res, 500, {
-        error: error instanceof Error ? error.message : "Unknown backend failure",
-      })
+        error: "LLM generation failed",
+      }, req)
     }
   }
 
-  return sendJson(res, 404, { error: "Not found" })
+  // ── POST /api/humanizer/score ──
+  if (method === "POST" && path === "/api/humanizer/score") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { error: "Unauthorized" }, req)
+    }
+
+    try {
+      const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+  const body = parsed.data
+      const text = typeof body.text === "string" ? body.text : ""
+
+      if (!text.trim()) {
+        return sendJson(res, 400, { error: "Missing required field: text" }, req)
+      }
+
+      const scores = estimateHumanizerMeters(text)
+      return sendJson(res, 200, {
+        ok: true,
+        source: "heuristic",
+        scores,
+        ...scores,
+      }, req)
+    } catch (error) {
+      console.error("[humanizer/score] error:", error instanceof Error ? error.message : error)
+      return sendJson(res, 500, {
+        error: "Humanizer scoring failed",
+      }, req)
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  C4/C5 FIX: Backend proxy routes
+  //  These allow the frontend to route DB queries and Gemini API
+  //  calls through the backend instead of using browser-side secrets.
+  // ════════════════════════════════════════════════════════════════
+
+  // ── POST /api/proxy/db/query ── (requires auth)
+  if (method === "POST" && path === "/api/proxy/db/query") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
+    }
+
+    if (!isDbConfigured()) {
+      return sendJson(res, 503, { ok: false, error: "Database not configured" }, req)
+    }
+
+    try {
+      const parsed = await parseJsonBody(req)
+      if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+      const { query, params } = parsed.data
+
+      if (typeof query !== "string" || !query.trim()) {
+        return sendJson(res, 400, { ok: false, error: "query is required" }, req)
+      }
+      if (params !== undefined && !Array.isArray(params)) {
+        return sendJson(res, 400, { ok: false, error: "params must be an array" }, req)
+      }
+
+      const rows = await executeProxyQuery(query, params || [])
+      return sendJson(res, 200, { ok: true, rows }, req)
+    } catch (err) {
+      console.error("[proxy/db/query] error:", err)
+      return sendJson(res, 500, { ok: false, error: "Database query failed" }, req)
+    }
+  }
+
+  // ── GET /api/proxy/db/test ── (requires auth)
+  if (method === "GET" && path === "/api/proxy/db/test") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
+    }
+
+    if (!isDbConfigured()) {
+      return sendJson(res, 200, { ok: false, error: "Database not configured" }, req)
+    }
+
+    try {
+      const rows = await executeProxyQuery("SELECT 1 as ping", [])
+      return sendJson(res, 200, { ok: true, connected: rows.length > 0 }, req)
+    } catch (err) {
+      return sendJson(res, 200, { ok: false, error: "Connection failed" }, req)
+    }
+  }
+
+  // ── POST /api/proxy/gemini/generate ── (requires auth)
+  if (method === "POST" && path === "/api/proxy/gemini/generate") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      return sendJson(res, 503, { ok: false, error: "Gemini not configured" }, req)
+    }
+
+    try {
+      const parsed = await parseJsonBody(req)
+      if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+      const { prompt, model } = parsed.data
+
+      if (typeof prompt !== "string" || !prompt.trim()) {
+        return sendJson(res, 400, { ok: false, error: "prompt is required" }, req)
+      }
+
+      const selectedModel = model || "gemini-2.5-flash"
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${encodeURIComponent(apiKey)}`
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+        }),
+      })
+
+      if (!response.ok) {
+        console.error("[proxy/gemini/generate] upstream error:", response.status)
+        return sendJson(res, 502, { ok: false, error: "Gemini API call failed" }, req)
+      }
+
+      const data = await response.json()
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || ""
+      return sendJson(res, 200, { ok: true, text, model: selectedModel }, req)
+    } catch (err) {
+      console.error("[proxy/gemini/generate] error:", err)
+      return sendJson(res, 500, { ok: false, error: "Gemini generation failed" }, req)
+    }
+  }
+
+  // ── POST /api/proxy/gemini/embed ── (requires auth)
+  if (method === "POST" && path === "/api/proxy/gemini/embed") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      return sendJson(res, 503, { ok: false, error: "Gemini not configured" }, req)
+    }
+
+    try {
+      const parsed = await parseJsonBody(req)
+      if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+      const { text, texts } = parsed.data
+
+      // Single text or batch
+      const textsToEmbed = texts ? (Array.isArray(texts) ? texts : [texts]) : text ? [text] : []
+      if (textsToEmbed.length === 0) {
+        return sendJson(res, 400, { ok: false, error: "text or texts is required" }, req)
+      }
+
+      const embeddings = []
+      for (const t of textsToEmbed) {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${encodeURIComponent(apiKey)}`
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: { parts: [{ text: t }] } }),
+        })
+        if (!response.ok) {
+          console.error("[proxy/gemini/embed] upstream error:", response.status)
+          return sendJson(res, 502, { ok: false, error: "Gemini embed API call failed" }, req)
+        }
+        const data = await response.json()
+        embeddings.push(data?.embedding?.values || [])
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        embeddings: textsToEmbed.length === 1 ? embeddings[0] : embeddings,
+        batch: textsToEmbed.length > 1,
+      }, req)
+    } catch (err) {
+      console.error("[proxy/gemini/embed] error:", err)
+      return sendJson(res, 500, { ok: false, error: "Gemini embedding failed" }, req)
+    }
+  }
+
+  // ── GET /api/proxy/gemini/test ── (requires auth)
+  if (method === "GET" && path === "/api/proxy/gemini/test") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      return sendJson(res, 200, { ok: false, error: "Gemini API key not configured on backend" }, req)
+    }
+
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "Respond with exactly: OK" }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 10 },
+        }),
+      })
+      if (!response.ok) {
+        return sendJson(res, 200, { ok: false, error: "Gemini API returned error" }, req)
+      }
+      const data = await response.json()
+      const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || "").toLowerCase()
+      return sendJson(res, 200, { ok: text.includes("ok") }, req)
+    } catch (err) {
+      return sendJson(res, 200, { ok: false, error: "Gemini connection test failed" }, req)
+    }
+  }
+
+  // ── Static Files (SPA Fallback) ──
+  if (method === "GET" && !path.startsWith("/api") && path !== "/health") {
+    const distPath = path.resolve(__dirname, "../dist")
+    let reqPath = path === "/" ? "/index.html" : path
+    let filePath = path.join(distPath, reqPath)
+
+    // Prevent directory traversal
+    if (!filePath.startsWith(distPath)) {
+      return sendJson(res, 403, { error: "Forbidden" }, req)
+    }
+
+    try {
+      let stat = await fs.promises.stat(filePath).catch(() => null)
+      
+      if (!stat || !stat.isFile()) {
+        // SPA fallback to index.html
+        filePath = path.join(distPath, "index.html")
+        stat = await fs.promises.stat(filePath).catch(() => null)
+        
+        if (!stat || !stat.isFile()) {
+          return sendJson(res, 404, { error: "Frontend not built. Run 'npm run build'." }, req)
+        }
+      }
+
+      const ext = path.extname(filePath).toLowerCase()
+      const mimeType = extToMime[ext] || "application/octet-stream"
+
+      res.writeHead(200, { "Content-Type": mimeType })
+      fs.createReadStream(filePath).pipe(res)
+      return
+    } catch (err) {
+      console.error("[static] error serving file:", err)
+      return sendJson(res, 500, { error: "Internal server error" }, req)
+    }
+  }
+
+  // ── 404 ──
+  return sendJson(res, 404, { error: "Not found" }, req)
 })
 
-server.listen(PORT, HOST, () => {
-  console.log(`[backend] listening on http://${HOST}:${PORT}`)
-})
+// ─────────────────────────── Startup ─────────────────────────────
+
+async function start() {
+  // Verify sentinel tables if DB is configured
+  if (isDbConfigured() && SENTINEL_AUTH_ENABLED) {
+    await ensureSentinelTables().catch((err) => {
+      console.warn("[startup] Sentinel table check failed:", err.message)
+    })
+  }
+
+  server.listen(PORT, HOST, () => {
+    console.log(`[backend] listening on http://${HOST}:${PORT}`)
+    console.log(`[backend] sentinel auth: ${SENTINEL_AUTH_ENABLED ? "ENABLED" : "disabled"}`)
+    console.log(`[backend] neon DB: ${isDbConfigured() ? "configured" : "not configured"}`)
+    console.log(`[backend] JWT: ${isJwtConfigured() ? "configured" : "not configured"}`)
+  })
+}
+
+start()

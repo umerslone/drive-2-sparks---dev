@@ -77,6 +77,33 @@ export interface ProjectSummary {
   version: number
 }
 
+// ───────────────────────────── Report Status ─────────────────────
+
+export type ReportStatus = "DRAFT" | "SUBMITTED" | "APPROVED_SIGNED" | "PUBLISHED"
+
+/**
+ * Valid state transitions for the report workflow:
+ *   DRAFT -> SUBMITTED -> APPROVED_SIGNED -> PUBLISHED
+ *   SUBMITTED -> DRAFT  (revert)
+ *   APPROVED_SIGNED -> DRAFT  (revert)
+ */
+export const REPORT_STATUS_TRANSITIONS: Record<ReportStatus, ReportStatus[]> = {
+  DRAFT: ["SUBMITTED"],
+  SUBMITTED: ["APPROVED_SIGNED", "DRAFT"],
+  APPROVED_SIGNED: ["PUBLISHED", "DRAFT"],
+  PUBLISHED: [],
+}
+
+// ───────────────────────────── Digital Signature ─────────────────
+
+/** Server-side HMAC-SHA256 digital signature metadata */
+export interface ReportSignature {
+  signatureHash: string          // HMAC-SHA256 over (reportId|contentHash|signerId|timestamp)
+  signedBy: string               // User ID of signer
+  signedAt: number               // Epoch ms
+  contentHash: string            // SHA-256 of report content at signing time
+}
+
 // ───────────────────────────── Report ────────────────────────────
 
 export interface NGOReport {
@@ -90,6 +117,20 @@ export interface NGOReport {
   generatedAt: number
   generatedBy: string
   exportedFormats: ExportFormat[]
+
+  // ── Workflow state machine (Phase 2) ──
+  status: ReportStatus
+  submittedBy?: string
+  submittedAt?: number
+  approvedBy?: string
+  approvedAt?: number
+  publishedBy?: string
+  publishedAt?: number
+  updatedAt?: number
+  updatedBy?: string
+
+  // ── Digital signature (Phase 2) ──
+  signature?: ReportSignature
 }
 
 export interface NGOReportSection {

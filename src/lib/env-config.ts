@@ -23,6 +23,7 @@ export interface EnvConfig {
   enableNGOModule: boolean
   enablePlagiarismChecker: boolean
   enableHumanizer: boolean
+  enableRagChat: boolean
   
   // Security
   secretSalt: string
@@ -52,6 +53,7 @@ export interface EnvConfig {
   useBackendStorage: boolean
   useBackendAuth: boolean
   backendApiKey: string | null
+  enableServerHumanizerScoring: boolean
 }
 
 /**
@@ -120,6 +122,7 @@ export function loadEnvConfig(): EnvConfig {
     enableNGOModule: getEnvBoolean("VITE_ENABLE_NGO_MODULE", true),
     enablePlagiarismChecker: getEnvBoolean("VITE_ENABLE_PLAGIARISM_CHECKER", true),
     enableHumanizer: getEnvBoolean("VITE_ENABLE_HUMANIZER", true),
+    enableRagChat: getEnvBoolean("VITE_ENABLE_RAG_CHAT", false),
     
     // Security
     secretSalt: getEnvString("VITE_SECRET_SALT", "sentinel-secret-store-v1") || "sentinel-secret-store-v1",
@@ -149,6 +152,7 @@ export function loadEnvConfig(): EnvConfig {
     useBackendStorage: getEnvBoolean("VITE_USE_BACKEND_STORAGE", false),
     useBackendAuth: getEnvBoolean("VITE_USE_BACKEND_AUTH", false),
     backendApiKey: getEnvString("VITE_BACKEND_API_KEY"),
+    enableServerHumanizerScoring: getEnvBoolean("VITE_ENABLE_SERVER_HUMANIZER_SCORING", false),
   }
   
   return config
@@ -183,7 +187,7 @@ export function validateEnvConfig(config: EnvConfig): string[] {
 /**
  * Check if a specific feature is enabled.
  */
-export function isFeatureEnabled(feature: keyof Pick<EnvConfig, "enableSentinelBrain" | "enableNGOModule" | "enablePlagiarismChecker" | "enableHumanizer">): boolean {
+export function isFeatureEnabled(feature: keyof Pick<EnvConfig, "enableSentinelBrain" | "enableNGOModule" | "enablePlagiarismChecker" | "enableHumanizer" | "enableRagChat">): boolean {
   const config = loadEnvConfig()
   return config[feature]
 }
@@ -227,6 +231,7 @@ export function logEnvConfigSummary(): void {
   console.log("  - NGO Module:", config.enableNGOModule ? "✓ Enabled" : "✗ Disabled")
   console.log("  - Plagiarism Checker:", config.enablePlagiarismChecker ? "✓ Enabled" : "✗ Disabled")
   console.log("  - Humanizer:", config.enableHumanizer ? "✓ Enabled" : "✗ Disabled")
+  console.log("  - RAG Chat:", config.enableRagChat ? "✓ Enabled" : "✗ Disabled")
   console.log("Rate Limits:")
   console.log("  - Basic Plan: $" + (config.basicPlanBudgetCents / 100).toFixed(2))
   console.log("  - Pro Plan: $" + (config.proPlanBudgetCents / 100).toFixed(2))
@@ -240,6 +245,7 @@ export function logEnvConfigSummary(): void {
   console.log("  - Backend Storage:", config.useBackendStorage ? "✓ Enabled" : "✗ Disabled")
   console.log("  - Backend Auth:", config.useBackendAuth ? "✓ Enabled" : "✗ Disabled")
   console.log("  - Backend API Key:", config.backendApiKey ? "✓ Configured" : "✗ Not configured")
+  console.log("  - Server Humanizer Scoring:", config.enableServerHumanizerScoring ? "✓ Enabled" : "✗ Disabled")
   console.groupEnd()
   
   // Validate and show any issues
