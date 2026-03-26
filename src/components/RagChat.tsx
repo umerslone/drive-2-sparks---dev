@@ -50,6 +50,16 @@ export function RagChat({ userId }: RagChatProps) {
   const [isCreatingThread, setIsCreatingThread] = useState(false)
   const [isSending, setIsSending] = useState(false)
 
+  const starterPrompts = useMemo(
+    () => [
+      "Summarize my platform architecture and suggest 3 immediate reliability improvements.",
+      "Draft a secure API rollout checklist for this project with priorities.",
+      "Review the current deployment setup and suggest a safer staging-to-production process.",
+      "Create a 7-day execution plan to improve product UX, performance, and observability.",
+    ],
+    []
+  )
+
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId) ?? null,
     [threads, activeThreadId]
@@ -305,7 +315,18 @@ export function RagChat({ userId }: RagChatProps) {
             {isLoadingThreads && <p className="text-xs text-muted-foreground">Loading threads...</p>}
 
             {!isLoadingThreads && threads.length === 0 && (
-              <p className="text-xs text-muted-foreground">No chats yet. Create your first thread.</p>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">No chats yet. Create your first thread.</p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={handleCreateThread}
+                  disabled={isCreatingThread}
+                >
+                  {isCreatingThread ? "Creating..." : "Start First Thread"}
+                </Button>
+              </div>
             )}
 
             {threads.map((thread) => (
@@ -349,8 +370,27 @@ export function RagChat({ userId }: RagChatProps) {
           <ScrollArea className="h-[420px] pr-2">
             <div className="space-y-3">
               {messages.length === 0 && (
-                <div className="rounded-lg border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
-                  Start the conversation by sending your first message.
+                <div className="rounded-lg border border-dashed border-border/60 p-4 text-sm text-muted-foreground space-y-3">
+                  <div>
+                    <p className="text-foreground font-semibold">Welcome from Techpigeon AI</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Start with one of these examples, or type your own question to begin.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {starterPrompts.map((prompt) => (
+                      <Button
+                        key={prompt}
+                        type="button"
+                        variant="outline"
+                        className="justify-start text-left h-auto whitespace-normal"
+                        onClick={() => setInput(prompt)}
+                        disabled={isSending}
+                      >
+                        {prompt}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               )}
 
