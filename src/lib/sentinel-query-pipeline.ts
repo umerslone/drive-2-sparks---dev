@@ -13,8 +13,40 @@ import { isNeonConfigured } from "./neon-client"
 import { getEnvConfig } from "./env-config"
 import { platformLlm } from "./platform-client"
 import { searchWeb } from "./web-search-client"
+import { fetchProviderRouting, type ProviderRoutingConfig } from "./provider-routing"
 
 export type QueryProvider = "gemini" | "copilot" | "spark" | "backend" | "brain" | "cache"
+
+const DEFAULT_ROUTING: ProviderRoutingConfig = {
+  moduleName: "global",
+  providerOrder: ["copilot", "groq", "spark", "gemini", "sentinel"],
+  webProviderOrder: ["searchcans", "serpapi", "duckduckgo", "sentinel"],
+  enabledProviders: { copilot: true, groq: true, spark: true, gemini: true, sentinel: true },
+  enabledWebProviders: { searchcans: true, serpapi: true, duckduckgo: true, sentinel: true },
+  dailyBudgetUsd: 25,
+  monthlyBudgetUsd: 300,
+  providerDailyCaps: {},
+  timeoutMs: 30000,
+}
+
+let routingCache: { key: string; config: ProviderRoutingConfig; ts: number } | null = null
+
+async function getRoutingForModule(moduleName?: string): Promise<ProviderRoutingConfig> {
+  const key = moduleName || "global"
+  const now = Date.now()
+  if (routingCache && routingCache.key === key && now - routingCache.ts < 45000) {
+    return routingCache.config
+  }
+
+  try {
+    const configs = await fetchProviderRouting(key)
+    const selected = configs[0] || { ...DEFAULT_ROUTING, moduleName: key }
+    routingCache = { key, config: selected, ts: now }
+    return selected
+  } catch {
+    return { ...DEFAULT_ROUTING, moduleName: key }
+  }
+}
 
 export interface PipelineResult {
   response: string
@@ -69,6 +101,21 @@ export async function sentinelQuery(
   const threadId = options?.threadId
   const shouldPersistConversation =
     neonReady && Boolean(threadId) && (options?.persistConversation ?? true)
+  const moduleName = options?.module || "global"
+  const routing = await getRoutingForModule(moduleName)
+  const enabled = routing.enabledProviders || DEFAULT_ROUTING.enabledProviders
+  const providerOrder = Array.isArray(routing.providerOrder) && routing.providerOrder.length > 0
+    ? routing.providerOrder
+    : DEFAULT_ROUTING.providerOrder
+  const useCopilotByPolicy = providerOrder.includes("copilot") && enabled.copilot !== false
+  const useSparkByPolicy = providerOrder.includes("spark") && enabled.spark !== false
+  const useGeminiByPolicy = providerOrder.includes("gemini") && enabled.gemini !== false
+  const orderedProviders = providerOrder.filter((name) => {
+    if (name === "copilot") return copilotReady && useCopilotByPolicy
+    if (name === "spark") return Boolean(options?.sparkFallback) && useSparkByPolicy
+    if (name === "gemini") return geminiReady && useGeminiByPolicy
+    return false
+  })
   let userMessageId: number | undefined
 
   const ensureUserMessage = async (): Promise<number | undefined> => {
@@ -272,7 +319,11 @@ export async function sentinelQuery(
         ? `Use the following context to inform your response. If any context is not relevant, ignore it and continue with best effort reasoning.\n\n${contextBlocks}\n\nUser query: ${queryText}`
         : queryText
 
-      const raw = await platformLlm(backendPrompt, "gpt-4o", false)
+      const backendProviders = providerOrder.filter((name) => name !== "spark" && name !== "sentinel")
+      const raw = await platformLlm(backendPrompt, "gpt-4o", false, {
+        providers: backendProviders,
+        module: moduleName,
+      })
       const response = typeof raw === "string" ? raw : JSON.stringify(raw)
       if (!response || response.trim().length === 0) {
         throw new Error("Backend LLM returned empty response")
@@ -383,7 +434,7 @@ Create a unified, humanized response that intelligently combines the best of all
   const useCopilotFirst = options?.preferCopilot && copilotReady
 
   // Step 3a-pre: Copilot first if preferred (code/technical queries)
-  if (useCopilotFirst) {
+  if (useCopilotFirst && orderedProviders[0] === "copilot") {
     try {
       const generationStart = Date.now()
       const augmentedPrompt = brainContextStr
@@ -416,7 +467,7 @@ Create a unified, humanized response that intelligently combines the best of all
   }
 
   // Step 3a: Generate with Gemini (primary)
-  if (copilotReady) {
+  if (orderedProviders.includes("copilot")) {
     try {
       const generationStart = Date.now()
       const contextBlocks = [brainContextStr, webSearchContextStr].filter(Boolean).join("\n\n")
@@ -451,7 +502,7 @@ Create a unified, humanized response that intelligently combines the best of all
   }
 
   // Step 4: Fallback to Spark LLM
-  if (options?.sparkFallback) {
+  if (orderedProviders.includes("spark") && options?.sparkFallback) {
     try {
       const generationStart = Date.now()
       const response = await options.sparkFallback()
@@ -480,7 +531,7 @@ Create a unified, humanized response that intelligently combines the best of all
   }
 
   // Step 5: Gemini as final hosted fallback
-  if (geminiReady) {
+  if (orderedProviders.includes("gemini")) {
     try {
       const generationStart = Date.now()
       const contextBlocks = [brainContextStr, webSearchContextStr].filter(Boolean).join("\n\n")

@@ -32,7 +32,9 @@ function getProxyHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   // Try sentinel JWT token first
   const token =
-    typeof localStorage !== "undefined" ? localStorage.getItem("sentinel-auth-token") : null
+    typeof localStorage !== "undefined"
+      ? (localStorage.getItem("sentinel-auth-token") || localStorage.getItem("sentinel_token"))
+      : null
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
   } else {
@@ -56,16 +58,6 @@ function getProxyHeaders(): Record<string, string> {
     // SSR or cookie unavailable
   }
   return headers
-}
-
-/** Check if backend proxy is available */
-async function isBackendAvailable(): Promise<boolean> {
-  try {
-    const resp = await fetch(`${getBackendUrl()}/health`, { signal: AbortSignal.timeout(2000) })
-    return resp.ok
-  } catch {
-    return false
-  }
 }
 
 // ── Public API (unchanged signatures for backward compatibility) ──

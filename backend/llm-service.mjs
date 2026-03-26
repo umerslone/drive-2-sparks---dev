@@ -1,5 +1,22 @@
 const DEFAULT_MODEL = "gpt-4o"
 
+const COST_PER_1K = {
+  copilot: Number(process.env.COST_PER_1K_COPILOT || 0.0018),
+  groq: Number(process.env.COST_PER_1K_GROQ || 0.0003),
+  gemini: Number(process.env.COST_PER_1K_GEMINI || 0.0010),
+  spark: Number(process.env.COST_PER_1K_SPARK || 0.0005),
+}
+
+function estimateTokens(prompt, responseText) {
+  const chars = String(prompt || "").length + String(responseText || "").length
+  return Math.max(1, Math.ceil(chars / 4))
+}
+
+function estimateCost(provider, totalTokens) {
+  const per1k = COST_PER_1K[provider] || 0
+  return Number(((totalTokens / 1000) * per1k).toFixed(6))
+}
+
 export function getProviderStatus() {
   const copilotToken = process.env.GITHUB_TOKEN || process.env.GITHUB_MODELS_TOKEN
   const groqApiKey = process.env.GROQ_API_KEY
@@ -72,10 +89,20 @@ async function callCopilot(prompt, model, token) {
   }
 
   const data = await response.json()
+  const text = extractTextFromCopilot(data)
+  const usage = data?.usage || {}
+  const totalTokens = Number(usage.total_tokens || estimateTokens(prompt, text))
+
   return {
-    text: extractTextFromCopilot(data),
+    text,
     model: data?.model || model || DEFAULT_MODEL,
     provider: "copilot",
+    usage: {
+      inputTokens: Number(usage.prompt_tokens || 0),
+      outputTokens: Number(usage.completion_tokens || 0),
+      totalTokens,
+      estimatedCostUsd: estimateCost("copilot", totalTokens),
+    },
   }
 }
 
@@ -110,10 +137,24 @@ async function callGemini(prompt, model, apiKey) {
   }
 
   const data = await response.json()
+  const text = extractTextFromGemini(data)
+  const usageMeta = data?.usageMetadata || {}
+  const totalTokens = Number(
+    usageMeta.totalTokenCount ||
+    (Number(usageMeta.promptTokenCount || 0) + Number(usageMeta.candidatesTokenCount || 0)) ||
+    estimateTokens(prompt, text)
+  )
+
   return {
-    text: extractTextFromGemini(data),
+    text,
     model: selectedModel,
     provider: "gemini",
+    usage: {
+      inputTokens: Number(usageMeta.promptTokenCount || 0),
+      outputTokens: Number(usageMeta.candidatesTokenCount || 0),
+      totalTokens,
+      estimatedCostUsd: estimateCost("gemini", totalTokens),
+    },
   }
 }
 
@@ -145,10 +186,19 @@ async function callGroq(prompt, model, apiKey) {
     throw new Error("Groq provider returned empty response")
   }
 
+  const usage = data?.usage || {}
+  const totalTokens = Number(usage.total_tokens || estimateTokens(prompt, text))
+
   return {
     text,
     model: data?.model || selectedModel,
     provider: "groq",
+    usage: {
+      inputTokens: Number(usage.prompt_tokens || 0),
+      outputTokens: Number(usage.completion_tokens || 0),
+      totalTokens,
+      estimatedCostUsd: estimateCost("groq", totalTokens),
+    },
   }
 }
 

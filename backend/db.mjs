@@ -105,9 +105,337 @@ export async function ensureSentinelTables() {
       ON retrieval_traces (thread_id, created_at DESC)
     `
 
+    await sql`
+      CREATE TABLE IF NOT EXISTS sentinel_provider_routing (
+        module_name TEXT PRIMARY KEY,
+        provider_order TEXT[] NOT NULL DEFAULT ARRAY['copilot','groq','spark','gemini','sentinel'],
+        web_provider_order TEXT[] NOT NULL DEFAULT ARRAY['searchcans','serpapi','duckduckgo','sentinel'],
+        enabled_providers JSONB NOT NULL DEFAULT '{"copilot":true,"groq":true,"spark":true,"gemini":true,"sentinel":true}'::jsonb,
+        enabled_web_providers JSONB NOT NULL DEFAULT '{"searchcans":true,"serpapi":true,"duckduckgo":true,"sentinel":true}'::jsonb,
+        daily_budget_usd NUMERIC(12,4) NOT NULL DEFAULT 25,
+        monthly_budget_usd NUMERIC(12,4) NOT NULL DEFAULT 300,
+        provider_daily_caps JSONB NOT NULL DEFAULT '{}'::jsonb,
+        timeout_ms INTEGER NOT NULL DEFAULT 30000,
+        updated_by TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS sentinel_provider_usage (
+        id BIGSERIAL PRIMARY KEY,
+        provider TEXT NOT NULL,
+        module_name TEXT NOT NULL DEFAULT 'global',
+        kind TEXT NOT NULL DEFAULT 'generation',
+        model TEXT,
+        request_count INTEGER NOT NULL DEFAULT 1,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        total_tokens INTEGER,
+        estimated_cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'ok',
+        error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_provider_usage_created
+      ON sentinel_provider_usage (created_at DESC)
+    `
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_provider_usage_provider_module
+      ON sentinel_provider_usage (provider, module_name, created_at DESC)
+    `
+
+    await sql`
+      INSERT INTO sentinel_provider_routing (module_name)
+      VALUES ('global')
+      ON CONFLICT (module_name) DO NOTHING
+    `
+
     console.log("[db] Sentinel tables verified")
   } catch (err) {
     console.warn("[db] Sentinel tables not found — run migrations first:", err.message)
+  }
+}
+
+function normalizeRoutingRow(row) {
+  const providerOrder = Array.isArray(row.provider_order)
+    ? row.provider_order
+    : ["copilot", "groq", "spark", "gemini", "sentinel"]
+
+  const webProviderOrder = Array.isArray(row.web_provider_order)
+    ? row.web_provider_order
+    : ["searchcans", "serpapi", "duckduckgo", "sentinel"]
+
+  const enabledProviders = typeof row.enabled_providers === "string"
+    ? JSON.parse(row.enabled_providers)
+    : (row.enabled_providers || {})
+
+  const enabledWebProviders = typeof row.enabled_web_providers === "string"
+    ? JSON.parse(row.enabled_web_providers)
+    : (row.enabled_web_providers || {})
+
+  const providerDailyCaps = typeof row.provider_daily_caps === "string"
+    ? JSON.parse(row.provider_daily_caps)
+    : (row.provider_daily_caps || {})
+
+  return {
+    moduleName: row.module_name,
+    providerOrder,
+    webProviderOrder,
+    enabledProviders,
+    enabledWebProviders,
+    dailyBudgetUsd: Number(row.daily_budget_usd || 0),
+    monthlyBudgetUsd: Number(row.monthly_budget_usd || 0),
+    providerDailyCaps,
+    timeoutMs: Number(row.timeout_ms || 30000),
+    updatedBy: row.updated_by || null,
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+  }
+}
+
+export async function listProviderRoutingConfigs() {
+  const sql = getSql()
+  const rows = await sql`
+    SELECT *
+    FROM sentinel_provider_routing
+    ORDER BY CASE WHEN module_name = 'global' THEN 0 ELSE 1 END, module_name ASC
+  `
+  return rows.map(normalizeRoutingRow)
+}
+
+export async function getProviderRoutingConfig(moduleName = "global") {
+  const sql = getSql()
+
+  const rows = await sql`
+    SELECT *
+    FROM sentinel_provider_routing
+    WHERE module_name = ${moduleName}
+    LIMIT 1
+  `
+  if (rows[0]) return normalizeRoutingRow(rows[0])
+
+  const fallback = await sql`
+    SELECT *
+    FROM sentinel_provider_routing
+    WHERE module_name = 'global'
+    LIMIT 1
+  `
+  return fallback[0] ? normalizeRoutingRow(fallback[0]) : {
+    moduleName: "global",
+    providerOrder: ["copilot", "groq", "spark", "gemini", "sentinel"],
+    webProviderOrder: ["searchcans", "serpapi", "duckduckgo", "sentinel"],
+    enabledProviders: { copilot: true, groq: true, spark: true, gemini: true, sentinel: true },
+    enabledWebProviders: { searchcans: true, serpapi: true, duckduckgo: true, sentinel: true },
+    dailyBudgetUsd: 25,
+    monthlyBudgetUsd: 300,
+    providerDailyCaps: {},
+    timeoutMs: 30000,
+    updatedBy: null,
+    updatedAt: Date.now(),
+  }
+}
+
+export async function upsertProviderRoutingConfig(config) {
+  const sql = getSql()
+
+  const moduleName = config.moduleName || "global"
+  const providerOrder = Array.isArray(config.providerOrder) && config.providerOrder.length > 0
+    ? config.providerOrder
+    : ["copilot", "groq", "spark", "gemini", "sentinel"]
+  const webProviderOrder = Array.isArray(config.webProviderOrder) && config.webProviderOrder.length > 0
+    ? config.webProviderOrder
+    : ["searchcans", "serpapi", "duckduckgo", "sentinel"]
+  const enabledProviders = config.enabledProviders || { copilot: true, groq: true, spark: true, gemini: true, sentinel: true }
+  const enabledWebProviders = config.enabledWebProviders || { searchcans: true, serpapi: true, duckduckgo: true, sentinel: true }
+  const providerDailyCaps = config.providerDailyCaps || {}
+  const timeoutMs = Math.max(5000, Math.min(Number(config.timeoutMs || 30000), 120000))
+  const dailyBudgetUsd = Math.max(0, Number(config.dailyBudgetUsd || 0))
+  const monthlyBudgetUsd = Math.max(0, Number(config.monthlyBudgetUsd || 0))
+
+  const rows = await sql`
+    INSERT INTO sentinel_provider_routing (
+      module_name,
+      provider_order,
+      web_provider_order,
+      enabled_providers,
+      enabled_web_providers,
+      daily_budget_usd,
+      monthly_budget_usd,
+      provider_daily_caps,
+      timeout_ms,
+      updated_by,
+      updated_at
+    )
+    VALUES (
+      ${moduleName},
+      ${providerOrder},
+      ${webProviderOrder},
+      ${JSON.stringify(enabledProviders)}::jsonb,
+      ${JSON.stringify(enabledWebProviders)}::jsonb,
+      ${dailyBudgetUsd},
+      ${monthlyBudgetUsd},
+      ${JSON.stringify(providerDailyCaps)}::jsonb,
+      ${timeoutMs},
+      ${config.updatedBy || null},
+      now()
+    )
+    ON CONFLICT (module_name) DO UPDATE SET
+      provider_order = EXCLUDED.provider_order,
+      web_provider_order = EXCLUDED.web_provider_order,
+      enabled_providers = EXCLUDED.enabled_providers,
+      enabled_web_providers = EXCLUDED.enabled_web_providers,
+      daily_budget_usd = EXCLUDED.daily_budget_usd,
+      monthly_budget_usd = EXCLUDED.monthly_budget_usd,
+      provider_daily_caps = EXCLUDED.provider_daily_caps,
+      timeout_ms = EXCLUDED.timeout_ms,
+      updated_by = EXCLUDED.updated_by,
+      updated_at = now()
+    RETURNING *
+  `
+
+  return normalizeRoutingRow(rows[0])
+}
+
+export async function writeProviderUsage(entry) {
+  const sql = getSql()
+  await sql`
+    INSERT INTO sentinel_provider_usage (
+      provider,
+      module_name,
+      kind,
+      model,
+      request_count,
+      input_tokens,
+      output_tokens,
+      total_tokens,
+      estimated_cost_usd,
+      status,
+      error
+    )
+    VALUES (
+      ${entry.provider},
+      ${entry.moduleName || "global"},
+      ${entry.kind || "generation"},
+      ${entry.model || null},
+      ${Math.max(1, Number(entry.requestCount || 1))},
+      ${entry.inputTokens ?? null},
+      ${entry.outputTokens ?? null},
+      ${entry.totalTokens ?? null},
+      ${Math.max(0, Number(entry.estimatedCostUsd || 0))},
+      ${entry.status || "ok"},
+      ${entry.error || null}
+    )
+  `
+}
+
+export async function getProviderUsageSummary({ days = 30 } = {}) {
+  const sql = getSql()
+  const safeDays = Math.max(1, Math.min(Number(days || 30), 365))
+
+  const [byProvider, byModule, totals, dailyCosts] = await Promise.all([
+    sql`
+      SELECT
+        provider,
+        kind,
+        COUNT(*)::INTEGER AS events,
+        SUM(request_count)::INTEGER AS requests,
+        SUM(COALESCE(total_tokens, 0))::BIGINT AS tokens,
+        SUM(estimated_cost_usd)::NUMERIC(14,6) AS cost
+      FROM sentinel_provider_usage
+      WHERE created_at > NOW() - (${safeDays}::INTEGER || ' days')::INTERVAL
+      GROUP BY provider, kind
+      ORDER BY cost DESC, requests DESC
+    `,
+    sql`
+      SELECT
+        module_name AS "moduleName",
+        COUNT(*)::INTEGER AS events,
+        SUM(request_count)::INTEGER AS requests,
+        SUM(COALESCE(total_tokens, 0))::BIGINT AS tokens,
+        SUM(estimated_cost_usd)::NUMERIC(14,6) AS cost
+      FROM sentinel_provider_usage
+      WHERE created_at > NOW() - (${safeDays}::INTEGER || ' days')::INTERVAL
+      GROUP BY module_name
+      ORDER BY cost DESC, requests DESC
+    `,
+    sql`
+      SELECT
+        COUNT(*)::INTEGER AS events,
+        SUM(request_count)::INTEGER AS requests,
+        SUM(COALESCE(total_tokens, 0))::BIGINT AS tokens,
+        SUM(estimated_cost_usd)::NUMERIC(14,6) AS cost,
+        COUNT(*) FILTER (WHERE status = 'error')::INTEGER AS errors
+      FROM sentinel_provider_usage
+      WHERE created_at > NOW() - (${safeDays}::INTEGER || ' days')::INTERVAL
+    `,
+    sql`
+      SELECT
+        DATE(created_at) AS day,
+        SUM(estimated_cost_usd)::NUMERIC(14,6) AS cost,
+        SUM(request_count)::INTEGER AS requests
+      FROM sentinel_provider_usage
+      WHERE created_at > NOW() - (${safeDays}::INTEGER || ' days')::INTERVAL
+      GROUP BY DATE(created_at)
+      ORDER BY day ASC
+    `,
+  ])
+
+  return {
+    windowDays: safeDays,
+    totals: {
+      events: Number(totals[0]?.events || 0),
+      requests: Number(totals[0]?.requests || 0),
+      tokens: Number(totals[0]?.tokens || 0),
+      cost: Number(totals[0]?.cost || 0),
+      errors: Number(totals[0]?.errors || 0),
+    },
+    byProvider: byProvider.map((row) => ({
+      provider: row.provider,
+      kind: row.kind,
+      events: Number(row.events || 0),
+      requests: Number(row.requests || 0),
+      tokens: Number(row.tokens || 0),
+      cost: Number(row.cost || 0),
+    })),
+    byModule: byModule.map((row) => ({
+      moduleName: row.moduleName,
+      events: Number(row.events || 0),
+      requests: Number(row.requests || 0),
+      tokens: Number(row.tokens || 0),
+      cost: Number(row.cost || 0),
+    })),
+    dailyCosts: dailyCosts.map((row) => ({
+      day: row.day,
+      cost: Number(row.cost || 0),
+      requests: Number(row.requests || 0),
+    })),
+  }
+}
+
+export async function getProviderBudgetSnapshot({ moduleName = "global" } = {}) {
+  const sql = getSql()
+  const [dailyRows, monthlyRows] = await Promise.all([
+    sql`
+      SELECT COALESCE(SUM(estimated_cost_usd), 0)::NUMERIC(14,6) AS cost
+      FROM sentinel_provider_usage
+      WHERE module_name = ${moduleName}
+        AND created_at >= date_trunc('day', now())
+    `,
+    sql`
+      SELECT COALESCE(SUM(estimated_cost_usd), 0)::NUMERIC(14,6) AS cost
+      FROM sentinel_provider_usage
+      WHERE module_name = ${moduleName}
+        AND created_at >= date_trunc('month', now())
+    `,
+  ])
+
+  return {
+    dailyCostUsd: Number(dailyRows[0]?.cost || 0),
+    monthlyCostUsd: Number(monthlyRows[0]?.cost || 0),
   }
 }
 

@@ -30,7 +30,9 @@ function getBackendUrl(): string {
 function getProxyHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   const token =
-    typeof localStorage !== "undefined" ? localStorage.getItem("sentinel-auth-token") : null
+    typeof localStorage !== "undefined"
+      ? (localStorage.getItem("sentinel-auth-token") || localStorage.getItem("sentinel_token"))
+      : null
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
   } else {

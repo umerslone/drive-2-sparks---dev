@@ -164,9 +164,12 @@ async function searchWithSearchCans(query, limit, apiKey) {
   }
 }
 
-export async function searchWeb(query, limit = 5) {
+export async function searchWeb(query, limit = 5, options = {}) {
   const cleanQuery = cleanText(query)
   const boundedLimit = Math.max(1, Math.min(Number(limit) || 5, 8))
+  const preferredProviders = Array.isArray(options?.providers)
+    ? options.providers
+    : ["searchcans", "serpapi", "duckduckgo"]
 
   if (!cleanQuery) {
     return {
@@ -175,33 +178,43 @@ export async function searchWeb(query, limit = 5) {
     }
   }
 
-  const searchCansApiKey = process.env.SEARCHCANS_API_KEY
-  if (searchCansApiKey) {
-    try {
-      const result = await searchWithSearchCans(cleanQuery, boundedLimit, searchCansApiKey)
-      if (result.results.length > 0) return result
-    } catch (err) {
-      console.warn("[web-search] searchcans failed:", err instanceof Error ? err.message : String(err))
+  for (const provider of preferredProviders) {
+    if (provider === "searchcans") {
+      const searchCansApiKey = process.env.SEARCHCANS_API_KEY
+      if (!searchCansApiKey) continue
+      try {
+        const result = await searchWithSearchCans(cleanQuery, boundedLimit, searchCansApiKey)
+        if (result.results.length > 0) return result
+      } catch (err) {
+        console.warn("[web-search] searchcans failed:", err instanceof Error ? err.message : String(err))
+      }
+      continue
+    }
+
+    if (provider === "serpapi") {
+      const serpApiKey = process.env.SERPAPI_API_KEY
+      if (!serpApiKey) continue
+      try {
+        const result = await searchWithSerpApi(cleanQuery, boundedLimit, serpApiKey)
+        if (result.results.length > 0) return result
+      } catch (err) {
+        console.warn("[web-search] serpapi failed:", err instanceof Error ? err.message : String(err))
+      }
+      continue
+    }
+
+    if (provider === "duckduckgo") {
+      try {
+        const result = await searchWithDuckDuckGo(cleanQuery, boundedLimit)
+        if (result.results.length > 0) return result
+      } catch (err) {
+        console.warn("[web-search] duckduckgo failed:", err instanceof Error ? err.message : String(err))
+      }
     }
   }
 
-  const serpApiKey = process.env.SERPAPI_API_KEY
-  if (serpApiKey) {
-    try {
-      const result = await searchWithSerpApi(cleanQuery, boundedLimit, serpApiKey)
-      if (result.results.length > 0) return result
-    } catch (err) {
-      console.warn("[web-search] serpapi failed:", err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  try {
-    return await searchWithDuckDuckGo(cleanQuery, boundedLimit)
-  } catch (err) {
-    console.warn("[web-search] duckduckgo failed:", err instanceof Error ? err.message : String(err))
-    return {
-      provider: "none",
-      results: [],
-    }
+  return {
+    provider: "none",
+    results: [],
   }
 }

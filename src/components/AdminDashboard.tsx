@@ -61,6 +61,7 @@ import { ErrorLogsViewer } from "@/components/ErrorLogsViewer"
 import { InviteManager } from "@/components/InviteManager"
 import { BudgetConfigManager } from "@/components/BudgetConfigManager"
 import { AdminSubscriptionPanel } from "@/components/AdminSubscriptionPanel"
+import { AdminProviderRoutingPanel } from "@/components/AdminProviderRoutingPanel"
 import { getSafeKVClient } from "@/lib/spark-shim"
 import { fetchBackendProviderStatus, type BackendProviderStatus } from "@/lib/platform-client"
 import { getEnvConfig } from "@/lib/env-config"
@@ -591,7 +592,7 @@ export function AdminDashboard() {
         >
           <Tabs defaultValue="users" className="w-full">
             <div className="mb-4 overflow-x-auto pb-1">
-              <TabsList className="grid min-w-[1050px] grid-cols-7">
+              <TabsList className="grid min-w-[1200px] grid-cols-8">
                 <TabsTrigger value="users" className="gap-2">
                   <Users size={18} weight="bold" />
                   User Management
@@ -619,6 +620,10 @@ export function AdminDashboard() {
                 <TabsTrigger value="errors" className="gap-2">
                   <Bug size={18} weight="bold" />
                   Error Logs
+                </TabsTrigger>
+                <TabsTrigger value="routing" className="gap-2">
+                  <Key size={18} weight="bold" />
+                  Provider Routing
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -1001,6 +1006,10 @@ export function AdminDashboard() {
 
             <TabsContent value="errors">
               <ErrorLogsViewer />
+            </TabsContent>
+
+            <TabsContent value="routing">
+              <AdminProviderRoutingPanel />
             </TabsContent>
           </Tabs>
         </motion.div>

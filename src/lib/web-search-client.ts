@@ -21,7 +21,9 @@ export async function searchWeb(query: string, limit = 4): Promise<WebSearchResp
     "Content-Type": "application/json",
   }
 
-  const token = typeof localStorage !== "undefined" ? localStorage.getItem("sentinel-auth-token") : null
+  const token = typeof localStorage !== "undefined"
+    ? (localStorage.getItem("sentinel-auth-token") || localStorage.getItem("sentinel_token"))
+    : null
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
   } else if (config.backendApiKey) {
@@ -43,7 +45,7 @@ export async function searchWeb(query: string, limit = 4): Promise<WebSearchResp
   const response = await fetch(`${baseUrl}/api/web/search`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ query, limit }),
+    body: JSON.stringify({ query, limit, module: "rag_chat" }),
     credentials: "include",
   })
 

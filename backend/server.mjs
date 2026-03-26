@@ -63,6 +63,10 @@ import {
   getAuditStats,
   getSystemStats,
   executeProxyQuery,
+  listProviderRoutingConfigs,
+  upsertProviderRoutingConfig,
+  getProviderUsageSummary,
+  getProviderBudgetSnapshot,
 } from "./db.mjs"
 import {
   canPerformAction,
@@ -76,6 +80,12 @@ import {
   ACTIONS,
 } from "./policy.mjs"
 import { searchWeb } from "./web-search.mjs"
+import {
+  getResolvedRouting,
+  filterActiveGenerationProviders,
+  filterActiveWebProviders,
+  logProviderUsage,
+} from "./routing-service.mjs"
 
 // ─────────────────────────── Config ──────────────────────────────
 
@@ -1158,6 +1168,124 @@ async function handleGetSystemStats(req, res, user) {
   }
 }
 
+function isRoutingAdmin(user) {
+  return hasMinimumRole(user.role, "SENTINEL_COMMANDER") || canPerformAction(user.role, ACTIONS.ADMIN_SYSTEM)
+}
+
+function parseRoutingPayload(body = {}) {
+  const toBoolRecord = (value) => {
+    if (!value || typeof value !== "object") return {}
+    const out = {}
+    for (const [k, v] of Object.entries(value)) out[k] = Boolean(v)
+    return out
+  }
+
+  const toNumRecord = (value) => {
+    if (!value || typeof value !== "object") return {}
+    const out = {}
+    for (const [k, v] of Object.entries(value)) {
+      const n = Number(v)
+      if (!Number.isNaN(n) && Number.isFinite(n) && n >= 0) out[k] = n
+    }
+    return out
+  }
+
+  return {
+    moduleName: typeof body.moduleName === "string" && body.moduleName.trim() ? body.moduleName.trim() : "global",
+    providerOrder: Array.isArray(body.providerOrder) ? body.providerOrder : undefined,
+    webProviderOrder: Array.isArray(body.webProviderOrder) ? body.webProviderOrder : undefined,
+    enabledProviders: toBoolRecord(body.enabledProviders),
+    enabledWebProviders: toBoolRecord(body.enabledWebProviders),
+    dailyBudgetUsd: body.dailyBudgetUsd,
+    monthlyBudgetUsd: body.monthlyBudgetUsd,
+    providerDailyCaps: toNumRecord(body.providerDailyCaps),
+    timeoutMs: body.timeoutMs,
+  }
+}
+
+async function handleGetProviderRouting(req, res, user, url) {
+  if (!isRoutingAdmin(user)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  try {
+    const moduleName = url.searchParams.get("module") || null
+    if (moduleName) {
+      const config = await getResolvedRouting(moduleName)
+      return sendJson(res, 200, { ok: true, config }, req)
+    }
+
+    const configs = await listProviderRoutingConfigs()
+    return sendJson(res, 200, { ok: true, configs }, req)
+  } catch (err) {
+    console.error("[sentinel/admin/provider-routing:get] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Failed to load provider routing" }, req)
+  }
+}
+
+async function handleUpsertProviderRouting(req, res, user) {
+  if (!isRoutingAdmin(user)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+
+  try {
+    const input = parseRoutingPayload(parsed.data)
+    const saved = await upsertProviderRoutingConfig({
+      ...input,
+      updatedBy: user.userId,
+    })
+
+    await writeAuditLog({
+      userId: user.userId,
+      action: "UPDATE",
+      resource: "provider-routing",
+      resourceId: saved.moduleName,
+      metadata: {
+        providerOrder: saved.providerOrder,
+        webProviderOrder: saved.webProviderOrder,
+        dailyBudgetUsd: saved.dailyBudgetUsd,
+        monthlyBudgetUsd: saved.monthlyBudgetUsd,
+      },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 200, { ok: true, config: saved }, req)
+  } catch (err) {
+    console.error("[sentinel/admin/provider-routing:upsert] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Failed to save provider routing" }, req)
+  }
+}
+
+async function handleGetProviderUsage(req, res, user, url) {
+  if (!isRoutingAdmin(user)) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  try {
+    const days = Number(url.searchParams.get("days") || 30)
+    const moduleName = url.searchParams.get("module") || "global"
+
+    const [summary, budget] = await Promise.all([
+      getProviderUsageSummary({ days }),
+      getProviderBudgetSnapshot({ moduleName }),
+    ])
+
+    return sendJson(res, 200, {
+      ok: true,
+      summary,
+      budget,
+      moduleName,
+    }, req)
+  } catch (err) {
+    console.error("[sentinel/admin/provider-usage] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Failed to load provider usage" }, req)
+  }
+}
+
 // ──────────────── Org Module Subscription Handlers (Phase 3) ─────
 
 /**
@@ -2093,6 +2221,21 @@ const server = http.createServer(async (req, res) => {
         return handleGetSystemStats(req, res, user)
       }
 
+      // GET /api/sentinel/admin/provider-routing
+      if (method === "GET" && reqPathname === "/api/sentinel/admin/provider-routing") {
+        return handleGetProviderRouting(req, res, user, url)
+      }
+
+      // PUT /api/sentinel/admin/provider-routing
+      if ((method === "PUT" || method === "POST") && reqPathname === "/api/sentinel/admin/provider-routing") {
+        return handleUpsertProviderRouting(req, res, user)
+      }
+
+      // GET /api/sentinel/admin/provider-usage
+      if (method === "GET" && reqPathname === "/api/sentinel/admin/provider-usage") {
+        return handleGetProviderUsage(req, res, user, url)
+      }
+
       // ── Org Module Subscription Routes (Phase 3) ──
 
       // GET /api/sentinel/org/subscriptions
@@ -2238,6 +2381,23 @@ const server = http.createServer(async (req, res) => {
     }, req)
   }
 
+  // ── GET /api/providers/routing ──
+  if (method === "GET" && reqPathname === "/api/providers/routing") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
+    }
+
+    try {
+      const moduleName = url.searchParams.get("module") || "global"
+      const config = await getResolvedRouting(moduleName)
+      return sendJson(res, 200, { ok: true, config }, req)
+    } catch (error) {
+      console.error("[providers/routing] error:", error instanceof Error ? error.message : error)
+      return sendJson(res, 500, { ok: false, error: "Failed to load provider routing" }, req)
+    }
+  }
+
   // ── POST /api/llm/generate ──
   if (method === "POST" && reqPathname === "/api/llm/generate") {
     const auth = authorize(req)
@@ -2251,6 +2411,7 @@ const server = http.createServer(async (req, res) => {
   const body = parsed.data
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : ""
       const model = typeof body.model === "string" ? body.model : undefined
+      const moduleName = typeof body.module === "string" ? body.module : "global"
       const parseJson = Boolean(body.parseJson)
       const providers = Array.isArray(body.providers)
         ? body.providers.filter((p) => p === "copilot" || p === "groq" || p === "gemini")
@@ -2260,7 +2421,38 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: "Missing required field: prompt" }, req)
       }
 
-      const result = await generateWithFallback({ prompt, model, providers })
+      const routing = await getResolvedRouting(moduleName)
+      const activeRoute = providers && providers.length > 0
+        ? providers
+        : filterActiveGenerationProviders(routing.generationOrder, routing.enabledProviders)
+
+      if ((routing.budgetExceeded.daily || routing.budgetExceeded.monthly) && !providers) {
+        return sendJson(res, 429, {
+          error: "Provider budget exceeded",
+          details: routing.budgetExceeded,
+        }, req)
+      }
+
+      const allowedProviders = activeRoute.filter((p) => p !== "spark")
+      if (allowedProviders.length === 0) {
+        return sendJson(res, 503, {
+          error: "No active hosted providers configured",
+          module: moduleName,
+        }, req)
+      }
+      const result = await generateWithFallback({ prompt, model, providers: allowedProviders })
+
+      void logProviderUsage({
+        provider: result.provider,
+        moduleName,
+        kind: "generation",
+        model: result.model,
+        inputTokens: result.usage?.inputTokens,
+        outputTokens: result.usage?.outputTokens,
+        totalTokens: result.usage?.totalTokens,
+        estimatedCostUsd: result.usage?.estimatedCostUsd || 0,
+        status: "ok",
+      }).catch(() => null)
 
       if (parseJson) {
         try {
@@ -2288,6 +2480,14 @@ const server = http.createServer(async (req, res) => {
       }, req)
     } catch (error) {
       console.error("[llm/generate] error:", error instanceof Error ? error.message : error)
+      const moduleName = "global"
+      void logProviderUsage({
+        provider: "sentinel",
+        moduleName,
+        kind: "generation",
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      }).catch(() => null)
       return sendJson(res, 500, {
         error: "LLM generation failed",
       }, req)
@@ -2307,12 +2507,26 @@ const server = http.createServer(async (req, res) => {
 
       const query = typeof parsed.data.query === "string" ? parsed.data.query.trim() : ""
       const limit = typeof parsed.data.limit === "number" ? parsed.data.limit : 5
+      const moduleName = typeof parsed.data.module === "string" ? parsed.data.module : "global"
 
       if (!query) {
         return sendJson(res, 400, { ok: false, error: "Missing required field: query" }, req)
       }
 
-      const web = await searchWeb(query, limit)
+      const routing = await getResolvedRouting(moduleName)
+      const webProviders = filterActiveWebProviders(routing.webOrder, routing.enabledWebProviders)
+      const web = await searchWeb(query, limit, { providers: webProviders })
+
+      void logProviderUsage({
+        provider: web.provider || "sentinel",
+        moduleName,
+        kind: "web-search",
+        requestCount: 1,
+        estimatedCostUsd: 0,
+        status: web.provider === "none" ? "error" : "ok",
+        error: web.provider === "none" ? "no_results" : null,
+      }).catch(() => null)
+
       return sendJson(res, 200, {
         ok: true,
         provider: web.provider,

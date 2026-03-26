@@ -7,6 +7,8 @@ interface BackendLlmRequest {
   prompt: string
   model?: string
   parseJson?: boolean
+  providers?: string[]
+  module?: string
 }
 
 interface BackendLlmResponse {
@@ -30,6 +32,11 @@ export interface BackendProviderStatus {
     groq?: { configured: boolean; authSource: string | null }
     gemini?: { configured: boolean; authSource: string | null }
   }
+}
+
+export interface PlatformLlmOptions {
+  providers?: string[]
+  module?: string
 }
 
 function getSparkGlobal(): {
@@ -62,7 +69,9 @@ async function callBackendLlm(request: BackendLlmRequest): Promise<unknown> {
   }
   
   // Prefer Sentinel JWT over legacy API key
-  const sentinelToken = typeof window !== "undefined" ? localStorage.getItem("sentinel_token") : null
+  const sentinelToken = typeof window !== "undefined"
+    ? (localStorage.getItem("sentinel-auth-token") || localStorage.getItem("sentinel_token"))
+    : null
   if (sentinelToken) {
     headers["Authorization"] = `Bearer ${sentinelToken}`
   } else if (config.useBackendAuth && config.backendApiKey) {
@@ -109,13 +118,20 @@ export function platformLlmPrompt(strings: TemplateStringsArray, ...values: unkn
 export async function platformLlm(
   prompt: unknown,
   model: SparkLLMModel = "gpt-4o",
-  parseJson: boolean = false
+  parseJson: boolean = false,
+  options?: PlatformLlmOptions
 ): Promise<unknown> {
   const config = getEnvConfig()
 
   if (config.useBackendLlm) {
     const asText = typeof prompt === "string" ? prompt : JSON.stringify(prompt)
-    return callBackendLlm({ prompt: asText, model, parseJson })
+    return callBackendLlm({
+      prompt: asText,
+      model,
+      parseJson,
+      ...(options?.providers ? { providers: options.providers } : {}),
+      ...(options?.module ? { module: options.module } : {}),
+    } as BackendLlmRequest & { providers?: string[]; module?: string })
   }
 
   const spark = getSparkGlobal()
@@ -141,7 +157,9 @@ export async function fetchBackendProviderStatus(): Promise<BackendProviderStatu
   }
   
   // Prefer Sentinel JWT over legacy API key
-  const sentinelToken = typeof window !== "undefined" ? localStorage.getItem("sentinel_token") : null
+  const sentinelToken = typeof window !== "undefined"
+    ? (localStorage.getItem("sentinel-auth-token") || localStorage.getItem("sentinel_token"))
+    : null
   if (sentinelToken) {
     headers["Authorization"] = `Bearer ${sentinelToken}`
   } else if (config.useBackendAuth && config.backendApiKey) {
