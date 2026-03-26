@@ -54,10 +54,8 @@ import {
 } from "@phosphor-icons/react"
 import { toast } from "sonner"
 
-import { setNeonDbUrl, isNeonConfigured, testConnection } from "@/lib/neon-client"
-import { setGeminiApiKey, isGeminiConfigured, testGeminiConnection } from "@/lib/gemini-client"
-import { setCopilotToken, isCopilotConfigured, testCopilotConnection } from "@/lib/copilot-client"
-import { retrieveSecret, maskSecret } from "@/lib/secret-store"
+import { isNeonConfigured } from "@/lib/neon-client"
+import { isGeminiConfigured } from "@/lib/gemini-client"
 import {
   pushLocalToNeon,
   pullNeonToLocal,
@@ -72,7 +70,6 @@ import {
   getBrainStats,
   getRecentQueries,
   updateDocumentStatus,
-  ensureBrainTables,
   type BrainDocument,
   type QueryLogEntry,
 } from "@/lib/sentinel-brain"
@@ -82,81 +79,11 @@ import {
   addConnector,
   deleteConnector,
   testConnectorHealth,
-  ensureConnectorsTable,
   type PlatformConnector,
 } from "@/lib/platform-connectors"
 
 // ─── Settings Sub-Tab ────────────────────────────────────────────────
 function SettingsPanel() {
-  // Never store raw secrets in React state for display.
-  // Only hold user-typed NEW values; show masked previews for existing secrets.
-  const [neonUrl, setNeonUrl] = useState("")
-  const [geminiKey, setGeminiKey] = useState("")
-  const [copilotToken, setCopilotTokenVal] = useState("")
-  const [testing, setTesting] = useState<string | null>(null)
-
-  // Masked previews loaded on mount
-  const [neonMask, setNeonMask] = useState("")
-  const [geminiMask, setGeminiMask] = useState("")
-  const [copilotMask, setCopilotMask] = useState("")
-
-  useEffect(() => {
-    // Load masked previews only — never raw values
-    async function loadMasks() {
-      const [n, g, c] = await Promise.all([
-        retrieveSecret("sentinel-neon-db-url"),
-        retrieveSecret("sentinel-gemini-api-key"),
-        retrieveSecret("sentinel-copilot-token"),
-      ])
-      setNeonMask(maskSecret(n))
-      setGeminiMask(maskSecret(g))
-      setCopilotMask(maskSecret(c))
-    }
-    loadMasks()
-  }, [])
-
-  const handleTestNeon = async () => {
-    if (!neonUrl.trim()) { toast.error("Enter Neon DB URL first"); return }
-    setTesting("neon")
-    await setNeonDbUrl(neonUrl.trim())
-    const result = await testConnection()
-    if (result.ok) {
-      toast.success("Neon connection successful")
-      await Promise.all([
-        ensureConnectorsTable(),
-        ensureBrainTables(),
-        ensureKVTable(),
-      ]).catch(() => {})
-    } else {
-      toast.error(`Neon connection failed: ${result.error}`)
-    }
-    setNeonMask(maskSecret(neonUrl.trim()))
-    setNeonUrl("")
-    setTesting(null)
-  }
-
-  const handleTestGemini = async () => {
-    if (!geminiKey.trim()) { toast.error("Enter Gemini API key first"); return }
-    setTesting("gemini")
-    await setGeminiApiKey(geminiKey.trim())
-    const result = await testGeminiConnection()
-    toast[result.ok ? "success" : "error"](result.ok ? "Gemini connection successful" : `Gemini failed: ${result.error}`)
-    setGeminiMask(maskSecret(geminiKey.trim()))
-    setGeminiKey("")
-    setTesting(null)
-  }
-
-  const handleTestCopilot = async () => {
-    if (!copilotToken.trim()) { toast.error("Enter Copilot token first"); return }
-    setTesting("copilot")
-    await setCopilotToken(copilotToken.trim())
-    const result = await testCopilotConnection()
-    toast[result.ok ? "success" : "error"](result.ok ? "Copilot connection successful" : `Copilot failed: ${result.error}`)
-    setCopilotMask(maskSecret(copilotToken.trim()))
-    setCopilotTokenVal("")
-    setTesting(null)
-  }
-
   return (
     <div className="space-y-6">
       <Card>
@@ -169,21 +96,15 @@ function SettingsPanel() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
-            <Badge variant={isNeonConfigured() ? "default" : "secondary"}>
-              {isNeonConfigured() ? "Connected" : "Not configured"}
+            <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">
+              <CheckCircle size={14} className="mr-1" />
+              Connected
             </Badge>
-            {neonMask && <span className="text-xs text-muted-foreground font-mono">{neonMask}</span>}
+            <span className="text-xs text-muted-foreground font-medium">Configured securely via Server Environment (Heroku)</span>
           </div>
-          <Input
-            type="password"
-            placeholder={neonMask ? "Enter new URL to replace existing" : "postgresql://user:pass@host/db?sslmode=require"}
-            value={neonUrl}
-            onChange={(e) => setNeonUrl(e.target.value)}
-          />
-          <Button onClick={handleTestNeon} disabled={testing === "neon"} size="sm" className="gap-2">
-            <Lightning size={16} weight="bold" />
-            {testing === "neon" ? "Testing..." : "Save & Test Connection"}
-          </Button>
+          <p className="text-sm text-muted-foreground mt-2">
+            The database connection is managed directly by the backend architecture. Local configuration is no longer required or permitted for security reasons.
+          </p>
         </CardContent>
       </Card>
 
@@ -197,21 +118,15 @@ function SettingsPanel() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
-            <Badge variant={isGeminiConfigured() ? "default" : "secondary"}>
-              {isGeminiConfigured() ? "Connected" : "Not configured"}
+            <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">
+              <CheckCircle size={14} className="mr-1" />
+              Connected
             </Badge>
-            {geminiMask && <span className="text-xs text-muted-foreground font-mono">{geminiMask}</span>}
+            <span className="text-xs text-muted-foreground font-medium">Configured securely via Server Environment (Heroku)</span>
           </div>
-          <Input
-            type="password"
-            placeholder={geminiMask ? "Enter new key to replace existing" : "AIzaSy..."}
-            value={geminiKey}
-            onChange={(e) => setGeminiKey(e.target.value)}
-          />
-          <Button onClick={handleTestGemini} disabled={testing === "gemini"} size="sm" className="gap-2">
-            <Lightning size={16} weight="bold" />
-            {testing === "gemini" ? "Testing..." : "Save & Test Connection"}
-          </Button>
+          <p className="text-sm text-muted-foreground mt-2">
+            Gemini AI API keys are securely stored on the backend. Proxy routing ensures your keys are never exposed to the browser.
+          </p>
         </CardContent>
       </Card>
 
@@ -225,21 +140,15 @@ function SettingsPanel() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2">
-            <Badge variant={isCopilotConfigured() ? "default" : "secondary"}>
-              {isCopilotConfigured() ? "Connected" : "Not configured"}
+            <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">
+              <CheckCircle size={14} className="mr-1" />
+              Connected
             </Badge>
-            {copilotMask && <span className="text-xs text-muted-foreground font-mono">{copilotMask}</span>}
+            <span className="text-xs text-muted-foreground font-medium">Configured securely via Server Environment (Heroku)</span>
           </div>
-          <Input
-            type="password"
-            placeholder={copilotMask ? "Enter new token to replace existing" : "ghp_..."}
-            value={copilotToken}
-            onChange={(e) => setCopilotTokenVal(e.target.value)}
-          />
-          <Button onClick={handleTestCopilot} disabled={testing === "copilot"} size="sm" className="gap-2">
-            <Lightning size={16} weight="bold" />
-            {testing === "copilot" ? "Testing..." : "Save & Test Connection"}
-          </Button>
+          <p className="text-sm text-muted-foreground mt-2">
+            GitHub Copilot integration tokens are securely managed by the server environment.
+          </p>
         </CardContent>
       </Card>
 
@@ -556,6 +465,10 @@ function ConnectorsPanel() {
                 <div>
                   <label className="text-sm font-medium mb-1 block">API Key / Token</label>
                   <Input type="password" placeholder="Enter key or token" value={authKey} onChange={(e) => setAuthKey(e.target.value)} />
+                  <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
+                    <CheckCircle size={12} weight="fill" />
+                    Keys are encrypted securely in the Sentinel Vertox Database
+                  </p>
                 </div>
               )}
               <div>
