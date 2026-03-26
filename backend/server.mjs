@@ -256,7 +256,7 @@ function parseCsrfCookie(req) {
  * Validate CSRF token: the X-CSRF-Token header must match the __csrf cookie.
  * Returns true if valid or if the request is exempt.
  */
-function validateCsrf(req, method, path) {
+function validateCsrf(req, method, reqPathname) {
   // Safe methods don't need CSRF
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return true
 
@@ -1947,9 +1947,9 @@ const extToMime = {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`)
   const method = req.method
-  const path = url.pathname
+  const reqPathname = url.pathname
 
-  console.log(`[HTTP] ${method} ${path}`)
+  console.log(`[HTTP] ${method} ${reqPathname}`)
 
   // ── CORS preflight ──
   if (method === "OPTIONS") {
@@ -1957,7 +1957,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── Health (M9 fix: minimal info for unauthenticated endpoint) ──
-  if (method === "GET" && path === "/health") {
+  if (method === "GET" && reqPathname === "/health") {
     return sendJson(res, 200, {
       ok: true,
       service: "llm-backend",
@@ -1967,7 +1967,7 @@ const server = http.createServer(async (req, res) => {
   // ── M1 fix: CSRF double-submit cookie validation ──
   // State-changing methods on authenticated routes must have matching
   // X-CSRF-Token header and __csrf cookie. Exempt: login, register, health.
-  if (SENTINEL_AUTH_ENABLED && !validateCsrf(req, method, path)) {
+  if (SENTINEL_AUTH_ENABLED && !validateCsrf(req, method, reqPathname)) {
     return sendJson(res, 403, { ok: false, error: "CSRF validation failed" }, req)
   }
 
@@ -1977,32 +1977,32 @@ const server = http.createServer(async (req, res) => {
 
   if (SENTINEL_AUTH_ENABLED) {
     // ── POST /api/auth/login ──
-    if (method === "POST" && path === "/api/auth/login") {
+    if (method === "POST" && reqPathname === "/api/auth/login") {
       return handleLogin(req, res)
     }
 
     // ── POST /api/auth/register (C2/C3 fix) ──
-    if (method === "POST" && path === "/api/auth/register") {
+    if (method === "POST" && reqPathname === "/api/auth/register") {
       return handleRegister(req, res)
     }
 
     // ── GET /api/auth/verify ──
-    if (method === "GET" && path === "/api/auth/verify") {
+    if (method === "GET" && reqPathname === "/api/auth/verify") {
       return handleVerify(req, res)
     }
 
     // ── POST /api/auth/refresh ──
-    if (method === "POST" && path === "/api/auth/refresh") {
+    if (method === "POST" && reqPathname === "/api/auth/refresh") {
       return handleRefresh(req, res)
     }
 
     // ── POST /api/auth/logout (H9 fix) ──
-    if (method === "POST" && path === "/api/auth/logout") {
+    if (method === "POST" && reqPathname === "/api/auth/logout") {
       return handleLogout(req, res)
     }
 
     // ── Sentinel API routes (all require JWT) ──
-    if (path.startsWith("/api/sentinel/")) {
+    if (reqPathname.startsWith("/api/sentinel/")) {
       const authResult = authenticateRequest(req)
       if (!authResult.authenticated) {
         return sendJson(res, 401, { ok: false, error: authResult.error }, req)
@@ -2033,12 +2033,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       // GET /api/sentinel/me
-      if (method === "GET" && path === "/api/sentinel/me") {
+      if (method === "GET" && reqPathname === "/api/sentinel/me") {
         return handleGetMe(req, res, user)
       }
 
       // GET /api/sentinel/diagnostics (M9 fix: moved from /health, requires SENTINEL_COMMANDER)
-      if (method === "GET" && path === "/api/sentinel/diagnostics") {
+      if (method === "GET" && reqPathname === "/api/sentinel/diagnostics") {
         if (!hasMinimumRole(user.role, "SENTINEL_COMMANDER")) {
           return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
         }
@@ -2053,49 +2053,49 @@ const server = http.createServer(async (req, res) => {
       }
 
       // GET /api/sentinel/modules
-      if (method === "GET" && path === "/api/sentinel/modules") {
+      if (method === "GET" && reqPathname === "/api/sentinel/modules") {
         return handleGetModules(req, res, user)
       }
 
       // POST /api/sentinel/check-access
-      if (method === "POST" && path === "/api/sentinel/check-access") {
+      if (method === "POST" && reqPathname === "/api/sentinel/check-access") {
         return handleCheckAccess(req, res, user)
       }
 
       // GET /api/sentinel/org/members
-      if (method === "GET" && path === "/api/sentinel/org/members") {
+      if (method === "GET" && reqPathname === "/api/sentinel/org/members") {
         return handleGetOrgMembers(req, res, user)
       }
 
       // POST /api/sentinel/modules/grant
-      if (method === "POST" && path === "/api/sentinel/modules/grant") {
+      if (method === "POST" && reqPathname === "/api/sentinel/modules/grant") {
         return handleGrantModuleAccess(req, res, user)
       }
 
       // POST /api/sentinel/modules/revoke
-      if (method === "POST" && path === "/api/sentinel/modules/revoke") {
+      if (method === "POST" && reqPathname === "/api/sentinel/modules/revoke") {
         return handleRevokeModuleAccess(req, res, user)
       }
 
       // GET /api/sentinel/audit/stats (must come before /api/sentinel/audit)
-      if (method === "GET" && path === "/api/sentinel/audit/stats") {
+      if (method === "GET" && reqPathname === "/api/sentinel/audit/stats") {
         return handleGetAuditStats(req, res, user, url)
       }
 
       // GET /api/sentinel/audit
-      if (method === "GET" && path === "/api/sentinel/audit") {
+      if (method === "GET" && reqPathname === "/api/sentinel/audit") {
         return handleGetAuditLogs(req, res, user, url)
       }
 
       // GET /api/sentinel/admin/stats
-      if (method === "GET" && path === "/api/sentinel/admin/stats") {
+      if (method === "GET" && reqPathname === "/api/sentinel/admin/stats") {
         return handleGetSystemStats(req, res, user)
       }
 
       // ── Org Module Subscription Routes (Phase 3) ──
 
       // GET /api/sentinel/org/subscriptions
-      if (method === "GET" && path === "/api/sentinel/org/subscriptions") {
+      if (method === "GET" && reqPathname === "/api/sentinel/org/subscriptions") {
         return handleListOrgModSubs(req, res, user, url)
       }
 
@@ -2112,7 +2112,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       // POST /api/sentinel/org/subscriptions
-      if (method === "POST" && path === "/api/sentinel/org/subscriptions") {
+      if (method === "POST" && reqPathname === "/api/sentinel/org/subscriptions") {
         return handleCreateOrgModSub(req, res, user)
       }
 
@@ -2129,35 +2129,35 @@ const server = http.createServer(async (req, res) => {
       }
 
       // GET /api/sentinel/admin/expiring-subscriptions
-      if (method === "GET" && path === "/api/sentinel/admin/expiring-subscriptions") {
+      if (method === "GET" && reqPathname === "/api/sentinel/admin/expiring-subscriptions") {
         return handleGetExpiringSubs(req, res, user, url)
       }
 
       // POST /api/sentinel/admin/process-expirations
-      if (method === "POST" && path === "/api/sentinel/admin/process-expirations") {
+      if (method === "POST" && reqPathname === "/api/sentinel/admin/process-expirations") {
         return handleProcessExpirations(req, res, user)
       }
 
       // ── Report Routes ──
 
       // GET /api/sentinel/reports?projectId=...&orgId=...&status=...
-      if (method === "GET" && path === "/api/sentinel/reports") {
+      if (method === "GET" && reqPathname === "/api/sentinel/reports") {
         return handleListReports(req, res, user, url)
       }
 
       // GET /api/sentinel/reports/:id
-      if (method === "GET" && path.startsWith("/api/sentinel/reports/") && !path.includes("/transitions")) {
+      if (method === "GET" && reqPathname.startsWith("/api/sentinel/reports/") && !path.includes("/transitions")) {
         const reportId = path.split("/api/sentinel/reports/")[1]
         return handleGetReport(req, res, user, reportId)
       }
 
       // POST /api/sentinel/reports (create draft)
-      if (method === "POST" && path === "/api/sentinel/reports") {
+      if (method === "POST" && reqPathname === "/api/sentinel/reports") {
         return handleCreateReport(req, res, user)
       }
 
       // PUT /api/sentinel/reports/:id (update draft content)
-      if (method === "PUT" && path.startsWith("/api/sentinel/reports/")) {
+      if (method === "PUT" && reqPathname.startsWith("/api/sentinel/reports/")) {
         const reportId = path.split("/api/sentinel/reports/")[1]
         return handleUpdateReport(req, res, user, reportId)
       }
@@ -2187,7 +2187,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       // DELETE /api/sentinel/reports/:id
-      if (method === "DELETE" && path.startsWith("/api/sentinel/reports/")) {
+      if (method === "DELETE" && reqPathname.startsWith("/api/sentinel/reports/")) {
         const reportId = path.split("/api/sentinel/reports/")[1]
         return handleDeleteReport(req, res, user, reportId)
       }
@@ -2213,7 +2213,7 @@ const server = http.createServer(async (req, res) => {
   // ════════════════════════════════════════════════════════════════
 
   // ── GET /api/providers/status ──
-  if (method === "GET" && path === "/api/providers/status") {
+  if (method === "GET" && reqPathname === "/api/providers/status") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
@@ -2238,7 +2238,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── POST /api/llm/generate ──
-  if (method === "POST" && path === "/api/llm/generate") {
+  if (method === "POST" && reqPathname === "/api/llm/generate") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { error: "Unauthorized" }, req)
@@ -2294,7 +2294,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── POST /api/humanizer/score ──
-  if (method === "POST" && path === "/api/humanizer/score") {
+  if (method === "POST" && reqPathname === "/api/humanizer/score") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { error: "Unauthorized" }, req)
@@ -2332,7 +2332,7 @@ const server = http.createServer(async (req, res) => {
   // ════════════════════════════════════════════════════════════════
 
   // ── POST /api/proxy/db/query ── (requires auth)
-  if (method === "POST" && path === "/api/proxy/db/query") {
+  if (method === "POST" && reqPathname === "/api/proxy/db/query") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
@@ -2363,7 +2363,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── GET /api/proxy/db/test ── (requires auth)
-  if (method === "GET" && path === "/api/proxy/db/test") {
+  if (method === "GET" && reqPathname === "/api/proxy/db/test") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
@@ -2382,7 +2382,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── POST /api/proxy/gemini/generate ── (requires auth)
-  if (method === "POST" && path === "/api/proxy/gemini/generate") {
+  if (method === "POST" && reqPathname === "/api/proxy/gemini/generate") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
@@ -2429,7 +2429,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── POST /api/proxy/gemini/embed ── (requires auth)
-  if (method === "POST" && path === "/api/proxy/gemini/embed") {
+  if (method === "POST" && reqPathname === "/api/proxy/gemini/embed") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
@@ -2479,7 +2479,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── GET /api/proxy/gemini/test ── (requires auth)
-  if (method === "GET" && path === "/api/proxy/gemini/test") {
+  if (method === "GET" && reqPathname === "/api/proxy/gemini/test") {
     const auth = authorize(req)
     if (!auth.authorized) {
       return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
@@ -2512,9 +2512,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── Static Files (SPA Fallback) ──
-  if (method === "GET" && !path.startsWith("/api") && path !== "/health") {
+  if (method === "GET" && !reqPathname.startsWith("/api") && reqPathname !== "/health") {
     const distPath = path.resolve(__dirname, "../dist")
-    let reqPath = path === "/" ? "/index.html" : path
+    let reqPath = reqPathname === "/" ? "/index.html" : reqPathname
     let filePath = path.join(distPath, reqPath)
 
     // Prevent directory traversal
