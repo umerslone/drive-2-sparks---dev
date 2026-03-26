@@ -80,12 +80,8 @@ export async function setGeminiApiKey(key: string): Promise<void> {
 }
 
 export function isGeminiConfigured(): boolean {
-  // Consider configured if backend is being used OR if encrypted key exists
-  if (typeof secretStore.hasSecret === "function") {
-    return secretStore.hasSecret(GEMINI_KEY_STORAGE)
-  }
-  // M8 fix: No longer check plaintext localStorage for API key
-  return false
+  // Assume configured via backend environment variables
+  return true
 }
 
 /** Direct Gemini fallback (only used when backend proxy unavailable) */

@@ -7,7 +7,8 @@ export async function setCopilotToken(token: string): Promise<void> {
 }
 
 export function isCopilotConfigured(): boolean {
-  return hasSecret(COPILOT_TOKEN_KEY)
+  // Assume configured via backend environment variables
+  return true
 }
 
 interface CopilotMessage {
