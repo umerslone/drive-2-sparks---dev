@@ -27,6 +27,7 @@ export interface BackendProviderStatus {
   fallbackOrder?: string[]
   providers?: {
     copilot?: { configured: boolean; authSource: string | null }
+    groq?: { configured: boolean; authSource: string | null }
     gemini?: { configured: boolean; authSource: string | null }
   }
 }

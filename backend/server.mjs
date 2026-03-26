@@ -2253,7 +2253,7 @@ const server = http.createServer(async (req, res) => {
       const model = typeof body.model === "string" ? body.model : undefined
       const parseJson = Boolean(body.parseJson)
       const providers = Array.isArray(body.providers)
-        ? body.providers.filter((p) => p === "copilot" || p === "gemini")
+        ? body.providers.filter((p) => p === "copilot" || p === "groq" || p === "gemini")
         : undefined
 
       if (!prompt) {

@@ -2,6 +2,7 @@ const DEFAULT_MODEL = "gpt-4o"
 
 export function getProviderStatus() {
   const copilotToken = process.env.GITHUB_TOKEN || process.env.GITHUB_MODELS_TOKEN
+  const groqApiKey = process.env.GROQ_API_KEY
   const geminiApiKey = process.env.GEMINI_API_KEY
 
   return {
@@ -15,6 +16,12 @@ export function getProviderStatus() {
             ? "GITHUB_MODELS_TOKEN"
             : null,
       },
+      groq: {
+        configured: Boolean(groqApiKey),
+        authSource: process.env.GROQ_API_KEY
+          ? "GROQ_API_KEY"
+          : null,
+      },
       gemini: {
         configured: Boolean(geminiApiKey),
         authSource: process.env.GEMINI_API_KEY
@@ -22,7 +29,7 @@ export function getProviderStatus() {
           : null,
       },
     },
-    fallbackOrder: ["copilot", "gemini"],
+    fallbackOrder: ["copilot", "groq", "gemini"],
   }
 }
 
@@ -110,13 +117,49 @@ async function callGemini(prompt, model, apiKey) {
   }
 }
 
+async function callGroq(prompt, model, apiKey) {
+  const selectedModel = model || process.env.GROQ_MODEL || "llama-3.1-8b-instant"
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: selectedModel,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 4096,
+    }),
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "")
+    console.error(`[llm-service] Groq API error ${response.status}:`, body)
+    throw new Error("LLM provider request failed")
+  }
+
+  const data = await response.json()
+  const text = data?.choices?.[0]?.message?.content
+  if (typeof text !== "string" || text.trim().length === 0) {
+    throw new Error("Groq provider returned empty response")
+  }
+
+  return {
+    text,
+    model: data?.model || selectedModel,
+    provider: "groq",
+  }
+}
+
 export async function generateWithFallback({ prompt, model, providers }) {
   const requestedProviders = Array.isArray(providers) && providers.length > 0
     ? providers
-    : ["copilot", "gemini"]
+    : ["copilot", "groq", "gemini"]
 
   const failures = []
   const copilotToken = process.env.GITHUB_TOKEN || process.env.GITHUB_MODELS_TOKEN
+  const groqApiKey = process.env.GROQ_API_KEY
   const geminiApiKey = process.env.GEMINI_API_KEY
 
   for (const provider of requestedProviders) {
@@ -129,6 +172,11 @@ export async function generateWithFallback({ prompt, model, providers }) {
       if (provider === "gemini") {
         if (!geminiApiKey) throw new Error("Gemini provider not configured")
         return await callGemini(prompt, model, geminiApiKey)
+      }
+
+      if (provider === "groq") {
+        if (!groqApiKey) throw new Error("Groq provider not configured")
+        return await callGroq(prompt, model, groqApiKey)
       }
 
       failures.push(`${provider}: unsupported provider`)
