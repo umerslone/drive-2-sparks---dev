@@ -75,6 +75,7 @@ import {
   TIER_MODULES,
   ACTIONS,
 } from "./policy.mjs"
+import { searchWeb } from "./web-search.mjs"
 
 // ─────────────────────────── Config ──────────────────────────────
 
@@ -2290,6 +2291,36 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 500, {
         error: "LLM generation failed",
       }, req)
+    }
+  }
+
+  // ── POST /api/web/search ──
+  if (method === "POST" && reqPathname === "/api/web/search") {
+    const auth = authorize(req)
+    if (!auth.authorized) {
+      return sendJson(res, 401, { ok: false, error: "Unauthorized" }, req)
+    }
+
+    try {
+      const parsed = await parseJsonBody(req)
+      if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+
+      const query = typeof parsed.data.query === "string" ? parsed.data.query.trim() : ""
+      const limit = typeof parsed.data.limit === "number" ? parsed.data.limit : 5
+
+      if (!query) {
+        return sendJson(res, 400, { ok: false, error: "Missing required field: query" }, req)
+      }
+
+      const web = await searchWeb(query, limit)
+      return sendJson(res, 200, {
+        ok: true,
+        provider: web.provider,
+        results: web.results,
+      }, req)
+    } catch (error) {
+      console.error("[web/search] error:", error instanceof Error ? error.message : error)
+      return sendJson(res, 500, { ok: false, error: "Web search failed" }, req)
     }
   }
 

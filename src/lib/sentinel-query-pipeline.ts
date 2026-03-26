@@ -12,6 +12,7 @@ import {
 import { isNeonConfigured } from "./neon-client"
 import { getEnvConfig } from "./env-config"
 import { platformLlm } from "./platform-client"
+import { searchWeb } from "./web-search-client"
 
 export type QueryProvider = "gemini" | "copilot" | "spark" | "backend" | "brain" | "cache"
 
@@ -46,6 +47,7 @@ export async function sentinelQuery(
     qualityGateProfile?: "strict" | "balanced" | "lenient"
     threadId?: number
     persistConversation?: boolean
+    webSearch?: boolean
   }
 ): Promise<PipelineResult> {
   const providers: QueryProvider[] = []
@@ -56,6 +58,7 @@ export async function sentinelQuery(
   let totalCandidates = 0
   let avgSimilarity: number | undefined
   let retrievalLatencyMs: number | undefined
+  let webSearchContextStr = ""
   const neonReady = isNeonConfigured()
   const geminiReadyRaw = isGeminiConfigured()
   const copilotReadyRaw = isCopilotConfigured()
@@ -240,12 +243,33 @@ export async function sentinelQuery(
     }
   }
 
+  // Step 2b: Optional web search context (for RAG / NGO workflows)
+  const shouldUseWebSearch =
+    options?.webSearch ?? (options?.module === "rag_chat" || options?.module === "ngo_module")
+  if (shouldUseWebSearch) {
+    try {
+      const web = await searchWeb(queryText, 4)
+      if (Array.isArray(web.results) && web.results.length > 0) {
+        const webLines = web.results
+          .slice(0, 4)
+          .map((item, idx) =>
+            `[Web ${idx + 1}] ${item.title}\nURL: ${item.url}\nSnippet: ${item.snippet}`
+          )
+          .join("\n\n")
+        webSearchContextStr = `--- WEB SEARCH (${web.provider}) ---\n${webLines}\n--- END WEB SEARCH ---`
+      }
+    } catch (err) {
+      console.warn("Web search context failed:", err)
+    }
+  }
+
   // Step 3: Generate
   if (backendMode) {
     try {
       const generationStart = Date.now()
-      const backendPrompt = brainContextStr
-        ? `Use the following knowledge base context to inform your response. If the context is relevant, incorporate it. If not, rely on your own knowledge.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END KNOWLEDGE BASE ---\n\nUser query: ${queryText}`
+      const contextBlocks = [brainContextStr, webSearchContextStr].filter(Boolean).join("\n\n")
+      const backendPrompt = contextBlocks
+        ? `Use the following context to inform your response. If any context is not relevant, ignore it and continue with best effort reasoning.\n\n${contextBlocks}\n\nUser query: ${queryText}`
         : queryText
 
       const raw = await platformLlm(backendPrompt, "gpt-4o", false)
@@ -278,8 +302,9 @@ export async function sentinelQuery(
     if (geminiReady || copilotReady) {
       try {
         const generationStart = Date.now()
-        const augmentedPrompt = brainContextStr
-          ? `Use the following knowledge base context to inform your response. If the context is relevant, incorporate it. If not, rely on your own knowledge.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END KNOWLEDGE BASE ---\n\nUser query: ${queryText}`
+        const contextBlocks = [brainContextStr, webSearchContextStr].filter(Boolean).join("\n\n")
+        const augmentedPrompt = contextBlocks
+          ? `Use the following context to inform your response. If any context is not relevant, ignore it and continue with best effort reasoning.\n\n${contextBlocks}\n\nUser query: ${queryText}`
           : queryText
 
         // Run all available primary models in parallel
@@ -391,45 +416,12 @@ Create a unified, humanized response that intelligently combines the best of all
   }
 
   // Step 3a: Generate with Gemini (primary)
-  if (geminiReady) {
-    try {
-      const generationStart = Date.now()
-      const augmentedPrompt = brainContextStr
-        ? `Use the following knowledge base context to inform your response. If the context is relevant, incorporate it. If not, rely on your own knowledge.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END KNOWLEDGE BASE ---\n\nUser query: ${queryText}`
-        : queryText
-
-      const response = await geminiGenerate(augmentedPrompt)
-      if (!response || response.trim().length === 0) {
-        throw new Error("Gemini returned empty response")
-      }
-      providers.push("gemini")
-
-      // Cache the generation
-      if (neonReady) {
-        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "gemini-2.5-flash" })
-      }
-
-      return finalizeResult({
-        response,
-        providers,
-        brainHits,
-        brainContext,
-        cached: false,
-        model: "gemini-2.5-flash",
-        status: "ok",
-      }, Date.now() - generationStart)
-    } catch (err) {
-      console.warn("Gemini generation failed:", err)
-      providerErrors.push(`gemini: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  // Step 3b: Copilot as secondary or code-specific provider
   if (copilotReady) {
     try {
       const generationStart = Date.now()
-      const augmentedPrompt = brainContextStr
-        ? `Use the following knowledge base context to inform your response.\n\n--- KNOWLEDGE BASE ---\n${brainContextStr}\n--- END ---\n\nQuery: ${queryText}`
+      const contextBlocks = [brainContextStr, webSearchContextStr].filter(Boolean).join("\n\n")
+      const augmentedPrompt = contextBlocks
+        ? `Use the following context to inform your response. If any context is not relevant, ignore it and continue with best effort reasoning.\n\n${contextBlocks}\n\nUser query: ${queryText}`
         : queryText
 
       const response = await copilotGenerate(augmentedPrompt)
@@ -438,6 +430,7 @@ Create a unified, humanized response that intelligently combines the best of all
       }
       providers.push("copilot")
 
+      // Cache the generation
       if (neonReady) {
         void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "copilot-gpt-4o" })
       }
@@ -454,6 +447,40 @@ Create a unified, humanized response that intelligently combines the best of all
     } catch (err) {
       console.warn("Copilot generation failed:", err)
       providerErrors.push(`copilot: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // Step 3b: Gemini as secondary fallback
+  if (geminiReady) {
+    try {
+      const generationStart = Date.now()
+      const contextBlocks = [brainContextStr, webSearchContextStr].filter(Boolean).join("\n\n")
+      const augmentedPrompt = contextBlocks
+        ? `Use the following context to inform your response. If any context is not relevant, ignore it and continue with best effort reasoning.\n\n${contextBlocks}\n\nUser query: ${queryText}`
+        : queryText
+
+      const response = await geminiGenerate(augmentedPrompt)
+      if (!response || response.trim().length === 0) {
+        throw new Error("Gemini returned empty response")
+      }
+      providers.push("gemini")
+
+      if (neonReady) {
+        void safeCacheAndLog(queryText, response, providers, brainHits, { ...options, model: "gemini-2.5-flash" })
+      }
+
+      return finalizeResult({
+        response,
+        providers,
+        brainHits,
+        brainContext,
+        cached: false,
+        model: "gemini-2.5-flash",
+        status: "ok",
+      }, Date.now() - generationStart)
+    } catch (err) {
+      console.warn("Gemini generation failed:", err)
+      providerErrors.push(`gemini: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
