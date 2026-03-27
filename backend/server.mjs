@@ -312,12 +312,33 @@ const SECURITY_HEADERS = {
   "X-XSS-Protection": "0", // Modern browsers: CSP is preferred; disable legacy XSS filter
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-  // I1 fix: Added report-uri directive. Set CSP_REPORT_URI env var in production
-  // to receive violation reports (e.g. https://your-domain/api/csp-report).
+  // Restrictive CSP for API/JSON responses (no rendering needed)
   "Content-Security-Policy":
     `default-src 'none'; frame-ancestors 'none'${
       process.env.CSP_REPORT_URI ? `; report-uri ${process.env.CSP_REPORT_URI}` : ""
     }`,
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
+
+/** Security headers for HTML pages — permits scripts, styles, images, fonts */
+const HTML_SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "X-XSS-Protection": "0",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Content-Security-Policy":
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: blob:",
+      "connect-src 'self' https://api.groq.com https://generativelanguage.googleapis.com https://api.github.com https://www.searchcans.com https://serpapi.com",
+      "worker-src 'self' blob:",
+      "frame-ancestors 'none'",
+    ].join("; ") +
+    (process.env.CSP_REPORT_URI ? `; report-uri ${process.env.CSP_REPORT_URI}` : ""),
   "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 }
 
@@ -2786,6 +2807,7 @@ const server = http.createServer(async (req, res) => {
 
       // Cache headers: hashed assets get long-lived immutable cache; index.html gets no-cache
       const isIndexHtml = filePath.endsWith("index.html")
+      const isHtml = ext === ".html"
       const cacheControl = isIndexHtml
         ? "no-cache, no-store, must-revalidate"
         : "public, max-age=31536000, immutable"
@@ -2793,7 +2815,7 @@ const server = http.createServer(async (req, res) => {
       const headers = {
         "Content-Type": mimeType,
         "Cache-Control": cacheControl,
-        ...SECURITY_HEADERS,
+        ...(isHtml ? HTML_SECURITY_HEADERS : SECURITY_HEADERS),
       }
 
       // CORS for static assets (fonts, etc.)
