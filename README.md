@@ -1,21 +1,21 @@
-# 🚀 AI-Powered Techpigeon Assistant (Drive 2 AI Sparks)
+# NovusSparks AI — Enterprise AI Platform
 
-Welcome to the **AI-Powered Techpigeon Assistant** — your intelligent marketing strategy and business insights platform built with cutting-edge AI technology.
+Welcome to **NovusSparks AI** — your intelligent marketing strategy and business insights platform built with cutting-edge AI technology.
 
-## 🎯 About Techpigeon
+## About NovusSparks
 
-**TechPigeon** is Pakistan's leading platform for AI Boot Camps, Cloud Computing, and IT Training. This assistant leverages TechPigeon's expertise to help you create powerful marketing strategies and business solutions.
+**NovusSparks AI** is an enterprise AI platform for AI-powered strategy generation, document review, and business insights. This assistant helps you create powerful marketing strategies and business solutions.
 
-**Visit us:** [www.techpigeon.org](https://www.techpigeon.org)
+**Visit us:** [novussparks.com](https://novussparks.com)
 
-## ✨ What This App Does
+## What This App Does
 
-- 📊 **Generate Marketing Strategies** - AI-powered marketing copy, visual strategies, and target audience analysis
-- 💾 **Save & Compare** - Store your strategies and compare up to 3 versions side-by-side
-- 🎨 **Visual Strategy Recommendations** - Get detailed guidance on colors, imagery, and design aesthetics
-- 🔍 **Audience Analysis** - Understand your target demographic with demographic and psychographic insights
+- **Generate Marketing Strategies** - AI-powered marketing copy, visual strategies, and target audience analysis
+- **Save & Compare** - Store your strategies and compare up to 3 versions side-by-side
+- **Visual Strategy Recommendations** - Get detailed guidance on colors, imagery, and design aesthetics
+- **Audience Analysis** - Understand your target demographic with demographic and psychographic insights
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Install dependencies
@@ -50,36 +50,36 @@ Run with debug mode to see configuration status:
 VITE_SPARK_DEBUG=true npm run dev
 ```
 
-## 🛠 Features
+## Features
 
-- ✅ Built with React + TypeScript
-- ✅ AI-powered strategy generation
-- ✅ Responsive design with Tailwind CSS
-- ✅ Local storage for saved strategies
-- ✅ Side-by-side comparison view
-- ✅ TechPigeon brand colors & typography
+- Built with React + TypeScript
+- AI-powered strategy generation
+- Responsive design with Tailwind CSS
+- Local storage for saved strategies
+- Side-by-side comparison view
+- NovusSparks brand colors & typography
 
-## 🎨 Branding
+## Branding
 
-This app ships with named TechPigeon presets and a menu-based selector in the user profile.
+This app ships with named NovusSparks presets and a menu-based selector in the user profile.
 
-Default theme: **techpigeon_brand**
-- **Picton Blue:** #5cc3eb
-- **Roti:** #bca444
-- **Cocoa Brown:** #1c1414
-- **Bay Leaf:** #8cb499
+Default theme: **novussparks_brand**
+- **Electric Cyan:** #38bdf8
+- **Spark Gold:** #e5a932
+- **Deep Navy:** #1c1414
+- **Neural Sage:** #6ee7a0
 
-Secondary theme: **techpigeon_classic**
+Secondary theme: **novussparks_classic**
 - **Primary Navy:** #0b1d3a
-- **Secondary Blue:** #3ba8d4
-- **Accent Gold:** #bba442
+- **Secondary Cyan:** #38bdf8
+- **Accent Gold:** #e5a932
 - **Typography:** Aleo (headings), Inter (body)
 
-## 📝 License
+## License
 
-For Spark Template Resources: MIT License - Copyright GitHub, Inc.
+MIT License - Copyright GitHub, Inc.
 
-## 🧭 Fast-Track Review Roadmap
+## Fast-Track Review Roadmap
 
 This project is moving with a compressed timeline (days, not weeks).
 
@@ -94,10 +94,10 @@ This project is moving with a compressed timeline (days, not weeks).
 - False-positive reduction for properly cited text
 - Report export improvements and evidence explainability
 
-## 📓 Development Log
+## Development Log
 
 Track implementation progress in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-**Powered by TechPigeon** | Pakistan's Leading AI & IT Training Platform
+**Powered by NovusSparks AI** | Enterprise AI Platform

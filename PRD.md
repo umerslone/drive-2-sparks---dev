@@ -1,4 +1,4 @@
-# AI Marketing Assistant - Powered by Techpigeon
+# AI Marketing Assistant - Powered by NovusSparks AI
 
 A versatile AI-powered marketing assistant with user authentication and profile management that transforms any topic, product, or service description into comprehensive marketing strategies complete with persuasive copy, visual direction, and audience insights.
 
@@ -72,7 +72,7 @@ This is a focused tool with clear input-output flow, user authentication, profil
 - **Purpose**: Enables sharing, printing, and offline access to marketing strategies
 - **Trigger**: User clicks "Export PDF" button on a saved strategy
 - **Progression**: User clicks export → Print dialog opens with formatted content → User can save as PDF or print
-- **Success criteria**: PDF includes strategy name, description, timestamp, all three sections, and Techpigeon branding
+- **Success criteria**: PDF includes strategy name, description, timestamp, all three sections, and NovusSparks branding
 
 ### Strategy Comparison
 - **Functionality**: Users can select up to 3 saved strategies and view them side-by-side
@@ -99,11 +99,11 @@ This is a focused tool with clear input-output flow, user authentication, profil
 
 ## Design Direction
 
-The design should evoke **professional trust with modern sophistication** - inspired by Techpigeon's blue-based branding. It should feel like a premium business tool: clean yet engaging, professional yet approachable, intelligent yet accessible. The interface should inspire confidence through its polished blue color palette and clear typography.
+The design should evoke **professional trust with modern sophistication** - inspired by NovusSparks' cyan-sage-gold branding. It should feel like a premium business tool: clean yet engaging, professional yet approachable, intelligent yet accessible. The interface should inspire confidence through its polished color palette and clear typography.
 
 ## Color Selection
 
-A professional, trustworthy blue palette inspired by Techpigeon's branding.
+A professional, trustworthy palette inspired by NovusSparks' branding (Electric Cyan #38bdf8, Neural Sage #6ee7a0, Spark Gold #e5a932).
 
 - **Primary Color**: Professional blue `oklch(0.48 0.18 240)` - conveys trust, intelligence, and professionalism; used for primary actions and key UI elements
 - **Secondary Colors**: 

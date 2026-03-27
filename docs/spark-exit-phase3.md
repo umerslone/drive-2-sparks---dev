@@ -1,4 +1,4 @@
-# Spark Exit - Phase 3.1 (Provider Status + Admin Visibility)
+# Platform Migration - Phase 3.1 (Provider Status + Admin Visibility)
 
 This slice hardens backend operations by exposing non-secret provider diagnostics and surfacing them in Admin UI.
 
@@ -25,7 +25,7 @@ For production, prefer server-to-server proxy patterns where browser does not ho
 - Backend no longer reads `VITE_*` provider keys.
 - Frontend query pipeline enforces backend-first execution when `VITE_USE_BACKEND_LLM=true`:
   - disables browser-side Gemini/Copilot execution in this mode
-  - keeps Sentinel Brain retrieval context, but generation runs through backend
+   - keeps retrieval context, but generation runs through backend
 
 ## Added backend endpoint
 

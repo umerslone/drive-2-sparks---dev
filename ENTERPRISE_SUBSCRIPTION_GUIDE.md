@@ -143,10 +143,10 @@ if (canModifyContent("contributor")) {
 ## Data Storage
 
 Subscriptions are stored with dual-store persistence:
-- **Primary**: spark.kv (enterprise KV store)
+- **Primary**: KV store (enterprise KV store)
 - **Fallback**: localStorage (browser storage)
 
-Both stores are kept in sync. If spark.kv is unavailable, localStorage provides fallback persistence.
+Both stores are kept in sync. If KV is unavailable, localStorage provides fallback persistence.
 
 ## Integration with NGO-SAAS Module
 

@@ -1,6 +1,6 @@
-# Spark Exit - Phase 1 (Safe Foundation)
+# Platform Migration - Phase 1 (Safe Foundation)
 
-This phase introduces non-breaking migration primitives while keeping Spark as the default runtime.
+This phase introduces non-breaking migration primitives.
 
 ## What was added
 
@@ -16,14 +16,13 @@ This phase introduces non-breaking migration primitives while keeping Spark as t
 
 ## What was migrated in code
 
-- `src/lib/ngo-team.ts` now uses `getPlatformKV()` instead of direct `spark.kv`.
+- `src/lib/ngo-team.ts` now uses `getPlatformKV()` instead of direct KV access.
 - `src/sentinel/api/db.ts` now uses `getPlatformKV()` for KV fallback.
 - `src/lib/sentinel-query-pipeline.ts` now supports backend fallback provider (`backend`) when `VITE_USE_BACKEND_LLM=true`.
 
 ## Why this is safe
 
 - All new flags are default-off.
-- Spark runtime is still used when flags are off.
 - No destructive schema or storage changes.
 - Existing UI and module routes remain unchanged.
 

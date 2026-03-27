@@ -24,7 +24,7 @@ Goal: Add conversational, auditable RAG threads while keeping current modules st
 ## Incremental tickets
 
 - P4-T1: SQL migration for chat and trace tables (additive only)
-- P4-T2: `sentinel-brain` data access helpers for thread/message CRUD
+- P4-T2: `sentinel-brain` data access helpers for thread/message CRUD (internal module name retained)
 - P4-T3: pipeline wiring for conversational context window + trace saves
 - P4-T4: initial chat UI shell with thread switching
 - P4-T5: citations and provider trace panel

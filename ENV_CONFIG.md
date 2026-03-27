@@ -1,6 +1,6 @@
 # Environment Variable Configuration Guide
 
-This guide explains how to configure environment variables for the Sentinel AI Suite Spark application.
+This guide explains how to configure environment variables for the NovusSparks AI platform.
 
 ## Quick Start
 
@@ -64,7 +64,7 @@ VITE_ENABLE_PLAGIARISM_CHECKER=true
 VITE_ENABLE_HUMANIZER=true
 ```
 
-### Platform Migration Flags (Spark Exit)
+### Platform Migration Flags
 
 Use these flags for staged migration away from Spark runtime:
 
@@ -240,8 +240,8 @@ For issues or questions about environment configuration:
 1. Check this README
 2. Review `.env.example` for all available options
 3. Check the [main README](./README.md) for general setup
-4. Contact [Techpigeon](https://www.techpigeon.org) for enterprise support
+4. Contact [NovusSparks](https://novussparks.com) for enterprise support
 
 ## License
 
-This configuration system is part of the Sentinel AI Suite and follows the same license as the main application.
+This configuration system is part of the NovusSparks AI platform and follows the same license as the main application.

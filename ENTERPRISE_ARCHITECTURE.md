@@ -92,7 +92,7 @@ Located in: `user.subscription` (SubscriptionInfo type)
 
 ### Layer 2: Enterprise Subscription (New System)
 Controls enterprise-wide features and billing
-Located in: `spark.kv[enterprise-subscriptions-{orgId}]` (EnterpriseSubscription type)
+Located in: `kv[enterprise-subscriptions-{orgId}]` (EnterpriseSubscription type)
 Managed by: Admin via Enterprise tab in App.tsx
 
 ### Layer 3: Team Access (New System)
@@ -113,7 +113,7 @@ No enterprise subscription → Cannot see Enterprise tab or NGO-SAAS
 Admin user (role="admin") → Sees new "Enterprise" tab
 Admin creates subscription via EnterpriseAdmin dashboard → organizationId = admin user.id
 Admin adds team members with roles → teamMembers array populated
-Enterprise subscription saved to spark.kv
+Enterprise subscription saved to KV
 ```
 
 ### Scenario 3: Team Member Joins
@@ -142,7 +142,7 @@ Next login: NGO-SAAS tab visible → John has NGO access at contributor level
 ✅ Pro: Billing and team management isolated
 ❌ Con: Requires passing organizationId (we use user.id as orgId)
 
-### 2. Dual-Store Persistence (spark.kv + localStorage)
+### 2. Dual-Store Persistence (KV + localStorage)
 ✅ Pro: Works even if enterprise KV service down
 ✅ Pro: Offline-first capability
 ✅ Pro: Fallback resilience
@@ -191,7 +191,7 @@ Automatic role assignment from invite
 
 ### 2. Audit Logging
 Track all team changes (added, role changed, access granted)
-Store in: `spark.kv[enterprise-audit-{orgId}]`
+Store in: `kv[enterprise-audit-{orgId}]`
 Display in admin dashboard with timestamps
 
 ### 3. Billing Integration

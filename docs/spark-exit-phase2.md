@@ -1,6 +1,6 @@
-# Spark Exit - Phase 2 (Backend LLM Service)
+# Platform Migration - Phase 2 (Backend LLM Service)
 
-Phase 2 adds a standalone backend endpoint for LLM generation while keeping Spark as default.
+Phase 2 adds a standalone backend endpoint for LLM generation.
 
 ## New backend files
 
@@ -53,4 +53,4 @@ npm run dev
 1. Set `VITE_BACKEND_API_BASE_URL` to your backend URL.
 2. Enable only `VITE_USE_BACKEND_LLM=true`.
 3. Keep storage/auth flags off in this phase.
-4. Validate parity against Spark path before production rollout.
+4. Validate parity before production rollout.

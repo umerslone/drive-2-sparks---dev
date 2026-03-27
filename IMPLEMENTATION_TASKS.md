@@ -1,4 +1,4 @@
-# Sentinel SAAS Implementation Tasks
+# NovusSparks AI — SAAS Implementation Tasks
 
 ## Phase 1: Planning
 ### Tasks:

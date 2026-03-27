@@ -1,6 +1,6 @@
-# Sentinel SaaS Deployment Guide (Heroku + Neon)
+# NovusSparks AI Deployment Guide (Heroku + Neon)
 
-This document outlines the architecture, environment configurations, and deployment procedures for the Sentinel SaaS platform. We have transitioned from GitHub Spark to a single-app Heroku deployment strategy with a multi-branch Neon PostgreSQL architecture.
+This document outlines the architecture, environment configurations, and deployment procedures for the NovusSparks AI platform. We have transitioned from GitHub Spark to a single-app Heroku deployment strategy with a multi-branch Neon PostgreSQL architecture.
 
 ## Architecture Overview
 
@@ -14,11 +14,11 @@ This document outlines the architecture, environment configurations, and deploym
 
 ## Environment Variables Matrix
 
-| Variable | Local / Spark (Dev) | Staging (Heroku) | Production (Heroku) | Description |
+| Variable | Local (Dev) | Staging (Heroku) | Production (Heroku) | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `NODE_ENV` | `development` | `production` | `production` | Enables secure cookies and optimizations. |
 | `NEON_DATABASE_URL` | Neon `Dev` Branch URL | Neon `Staging` Branch URL | Neon `Prod` Branch URL | Database connection string. |
-| `JWT_SECRET` | Local secret | Secure random string | Secure random string | Signs Sentinel auth tokens. |
+| `JWT_SECRET` | Local secret | Secure random string | Secure random string | Signs auth tokens. |
 | `BACKEND_SENTINEL_AUTH` | `true` | `true` | `true` | Enables the full SaaS authentication flow. |
 | `BACKEND_REQUIRE_AUTH` | `false` (usually) | `true` | `true` | Disallows unauthenticated proxy routes. |
 | `GEMINI_API_KEY` | Dev key | Staging key | Prod key | For LLM provider fallback/routing. |
@@ -31,7 +31,7 @@ This document outlines the architecture, environment configurations, and deploym
 
 1. **Create the Heroku App:**
    ```bash
-   heroku create sentinel-saas-prod
+   heroku create novussparks-prod
    ```
 2. **Set Buildpacks:**
    ```bash
