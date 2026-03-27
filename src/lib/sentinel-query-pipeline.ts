@@ -68,7 +68,7 @@ export async function sentinelQuery(
   queryText: string,
   options?: {
     module?: string
-    userId?: number
+    userId?: string | number
     sector?: string
     skipCache?: boolean
     preferCopilot?: boolean
@@ -708,7 +708,7 @@ async function safeLogQuery(
   responseJson: Record<string, unknown> | string,
   providers: QueryProvider[],
   brainHits: number,
-  options?: { module?: string; userId?: number }
+  options?: { module?: string; userId?: string | number }
 ): Promise<void> {
   try {
     const parsed = typeof responseJson === "string" ? { text: responseJson } : responseJson
@@ -730,7 +730,7 @@ async function safeCacheAndLog(
   response: string,
   providers: QueryProvider[],
   brainHits: number,
-  options?: { module?: string; userId?: number; model?: string }
+  options?: { module?: string; userId?: string | number; model?: string }
 ): Promise<void> {
   try {
     await cacheGeneration({

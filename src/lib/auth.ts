@@ -1,5 +1,5 @@
 import { UserProfile } from "@/types"
-import { ensureUserSubscription, getDefaultSubscription } from "@/lib/subscription"
+import { ensureUserSubscription, getDefaultSubscription, TRIAL_CREDITS, TRIAL_MAX_SUBMISSIONS } from "@/lib/subscription"
 import { getSafeKVClient } from "@/lib/spark-shim"
 import { sentinelAuth } from "@/sentinel/api/auth"
 import type { SentinelUser } from "@/sentinel/types"
@@ -109,6 +109,43 @@ export const authService = {
         return { success: false, error: "Password must be at least 8 characters" }
       }
 
+      // ── Try Sentinel backend registration first (mirrors login() pattern) ──
+      // This ensures a JWT is stored so all subsequent API calls are authenticated.
+      const sentinelResult = await sentinelAuth.register(email, password, fullName)
+      if (sentinelResult.success && sentinelResult.session?.user) {
+        const normalizedUser = ensureUserSubscription(
+          mapSentinelUserToUserProfile(sentinelResult.session.user)
+        )
+        // Auto-grant welcome trial so new users can access Review & Humanizer
+        if (!normalizedUser.subscription?.trial?.requested) {
+          normalizedUser.subscription = {
+            ...(normalizedUser.subscription || getDefaultSubscription()),
+            proCredits: TRIAL_CREDITS,
+          trial: {
+            requested: true,
+            requestedAt: Date.now(),
+            exhausted: false,
+            creditsGranted: TRIAL_CREDITS,
+            submissionsUsed: 0,
+            maxSubmissions: TRIAL_MAX_SUBMISSIONS,
+          },
+        }
+        }
+        const kv = getSafeKVClient()
+        const users = await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
+        users[normalizedUser.id] = normalizedUser
+        await kv.set(USERS_STORAGE_KEY, users)
+        await kv.set(CURRENT_USER_KEY, normalizedUser.id)
+        saveCurrentUserIdLocal(normalizedUser.id)
+        return { success: true, user: normalizedUser }
+      }
+
+      // If backend responded with an error (not just unreachable), surface it
+      if (sentinelResult.error && sentinelResult.error !== "Registration failed. Please try again.") {
+        return { success: false, error: sentinelResult.error }
+      }
+
+      // ── Fallback: KV-based registration (backend unreachable) ──
       const kv = getSafeKVClient()
       const credentials = await kv.get<Record<string, StoredCredential>>(USER_CREDENTIALS_KEY) || {}
       
@@ -118,7 +155,7 @@ export const authService = {
 
       const users = await kv.get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
       
-      const userId = `user_${crypto.randomUUID()}`
+      const userId = crypto.randomUUID()
       const passwordHash = await simpleHash(password)
 
       const newUser: UserProfile = {
@@ -126,7 +163,18 @@ export const authService = {
         email: email.toLowerCase(),
         fullName: fullName,
         role: "client",
-        subscription: getDefaultSubscription(),
+        subscription: {
+          ...getDefaultSubscription(),
+          proCredits: TRIAL_CREDITS,
+          trial: {
+            requested: true,
+            requestedAt: Date.now(),
+            exhausted: false,
+            creditsGranted: TRIAL_CREDITS,
+            submissionsUsed: 0,
+            maxSubmissions: TRIAL_MAX_SUBMISSIONS,
+          },
+        },
         createdAt: Date.now(),
         lastLoginAt: Date.now(),
       }

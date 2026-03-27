@@ -48,13 +48,26 @@ export async function ensureSentinelTables() {
     await sql`
       CREATE TABLE IF NOT EXISTS chat_threads (
         id BIGSERIAL PRIMARY KEY,
-        user_id INTEGER,
+        user_id TEXT,
         module TEXT NOT NULL DEFAULT 'general',
         title TEXT NOT NULL DEFAULT 'New Chat',
         status TEXT NOT NULL DEFAULT 'active',
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
+    `
+
+    /* Migrate existing INTEGER user_id to TEXT for UUID support */
+    await sql`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'chat_threads' AND column_name = 'user_id' AND data_type = 'integer'
+        ) THEN
+          ALTER TABLE chat_threads ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT;
+        END IF;
+      END $$
     `
 
     await sql`

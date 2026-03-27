@@ -27,20 +27,9 @@ interface RagChatProps {
 type TraceByMessage = Record<number, RetrievalTrace>
 
 export function RagChat({ userId, isAdmin = false }: RagChatProps) {
-  const dbUserId = useMemo(() => {
-    const numericUserId = Number(userId)
-    if (Number.isFinite(numericUserId)) {
-      return numericUserId
-    }
-
-    // Deterministic fallback for string-based auth IDs so we can safely map
-    // per-user chat data into INTEGER-backed database columns.
-    let hash = 0
-    for (let i = 0; i < userId.length; i++) {
-      hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0
-    }
-    return Math.abs(hash)
-  }, [userId])
+  // Use the raw string userId directly — the chat_threads.user_id column
+  // is now TEXT to properly support UUID-based user IDs from the backend.
+  const dbUserId = userId
 
   const [threads, setThreads] = useState<ChatThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)

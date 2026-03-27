@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS platform_connectors (
 
 CREATE TABLE IF NOT EXISTS chat_threads (
     id           BIGSERIAL    PRIMARY KEY,
-    user_id      INTEGER,
+    user_id      TEXT,
     module       TEXT         NOT NULL DEFAULT 'general',
     title        TEXT         NOT NULL DEFAULT 'New Chat',
     status       TEXT         NOT NULL DEFAULT 'active',   -- active | archived

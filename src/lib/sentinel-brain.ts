@@ -46,7 +46,7 @@ export interface CachedGeneration {
 
 export interface ChatThread {
   id: number
-  user_id: number | null
+  user_id: string | null
   module: string
   title: string
   status: "active" | "archived"
@@ -148,13 +148,26 @@ export async function ensureBrainTables(): Promise<void> {
   await sql`
     CREATE TABLE IF NOT EXISTS chat_threads (
       id BIGSERIAL PRIMARY KEY,
-      user_id INTEGER,
+      user_id TEXT,
       module TEXT NOT NULL DEFAULT 'general',
       title TEXT NOT NULL DEFAULT 'New Chat',
       status TEXT NOT NULL DEFAULT 'active',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `
+
+  /* Migrate existing INTEGER user_id columns to TEXT for UUID support */
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'chat_threads' AND column_name = 'user_id' AND data_type = 'integer'
+      ) THEN
+        ALTER TABLE chat_threads ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT;
+      END IF;
+    END $$
   `
 
   await sql`
@@ -331,7 +344,7 @@ export async function getBrainStats(): Promise<{
 // --- Query Log ---
 
 export async function logQuery(entry: {
-  user_id?: number
+  user_id?: string | number
   query_text: string
   query_embedding?: number[]
   module?: string
@@ -375,7 +388,7 @@ export async function getRecentQueries(userId?: number, limit = 20): Promise<Que
 // --- Chat Threads ---
 
 export async function createChatThread(entry?: {
-  user_id?: number
+  user_id?: string
   module?: string
   title?: string
   status?: ChatThread["status"]
@@ -396,7 +409,7 @@ export async function createChatThread(entry?: {
 }
 
 export async function listChatThreads(options?: {
-  user_id?: number
+  user_id?: string
   module?: string
   status?: ChatThread["status"]
   limit?: number
@@ -407,7 +420,7 @@ export async function listChatThreads(options?: {
   const rows = await sql`
     SELECT *
     FROM chat_threads
-    WHERE (${options?.user_id ?? null}::int IS NULL OR user_id = ${options?.user_id ?? null})
+    WHERE (${options?.user_id ?? null}::text IS NULL OR user_id = ${options?.user_id ?? null})
       AND (${options?.module ?? null}::text IS NULL OR module = ${options?.module ?? null})
       AND (${options?.status ?? null}::text IS NULL OR status = ${options?.status ?? null})
     ORDER BY updated_at DESC
@@ -437,12 +450,12 @@ export async function updateChatThread(
   return rowsArray[0] ? (rowsArray[0] as ChatThread) : null
 }
 
-export async function deleteChatThread(id: number, userId?: number): Promise<boolean> {
+export async function deleteChatThread(id: number, userId?: string): Promise<boolean> {
   const sql = await getNeonClient()
   const rows = await sql`
     DELETE FROM chat_threads
     WHERE id = ${id}
-      AND (${userId ?? null}::int IS NULL OR user_id = ${userId ?? null})
+      AND (${userId ?? null}::text IS NULL OR user_id = ${userId ?? null})
     RETURNING id
   `
   const rowsArray = Array.isArray(rows) ? rows : []
