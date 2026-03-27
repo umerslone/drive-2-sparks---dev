@@ -78,6 +78,17 @@ async function callBackendLlm(request: BackendLlmRequest): Promise<unknown> {
     headers["x-backend-api-key"] = config.backendApiKey
   }
 
+  // CSRF token from cookie
+  if (typeof document !== "undefined") {
+    const csrfMatch = document.cookie
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("__csrf="))
+    if (csrfMatch) {
+      headers["X-CSRF-Token"] = csrfMatch.slice("__csrf=".length)
+    }
+  }
+
   const response = await fetch(`${baseUrl}/api/llm/generate`, {
     method: "POST",
     headers,
@@ -123,7 +134,9 @@ export async function platformLlm(
 ): Promise<unknown> {
   const config = getEnvConfig()
 
-  if (config.useBackendLlm) {
+  // Use backend when explicitly configured OR when providers/module are specified
+  // (the pipeline forces backend mode for specific modules like rag_chat)
+  if (config.useBackendLlm || options?.providers || options?.module) {
     const asText = typeof prompt === "string" ? prompt : JSON.stringify(prompt)
     return callBackendLlm({
       prompt: asText,
