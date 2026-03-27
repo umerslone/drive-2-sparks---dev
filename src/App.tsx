@@ -1349,7 +1349,7 @@ ${JSON.stringify(candidate)}`
                 onClick={() => setShowLandingPage(true)}
                 className="flex items-center gap-2 md:gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
               >
-                <img src={faviconImg} alt="NovusSparks AI" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain" />
+                <img src={faviconImg} alt="NovusSparks AI" className="w-10 h-10 md:w-14 md:h-14 shrink-0 object-contain" />
                 <h1 className="text-xl sm:text-2xl md:text-4xl font-bold tracking-tight text-foreground truncate">
                   <span className="hidden sm:inline">NovusSparks AI</span>
                   <span className="sm:hidden">NovusSparks</span>

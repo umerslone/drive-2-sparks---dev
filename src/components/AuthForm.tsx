@@ -134,7 +134,7 @@ export function AuthForm({ onAuthSuccess, initialMode }: AuthFormProps) {
       >
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 mb-4">
-            <img src={faviconImg} alt="NovusSparks AI" className="w-9 h-9 object-contain" />
+            <img src={faviconImg} alt="NovusSparks AI" className="w-12 h-12 object-contain" />
             <h1 className="text-3xl font-bold tracking-tight text-foreground">
               NovusSparks AI
             </h1>

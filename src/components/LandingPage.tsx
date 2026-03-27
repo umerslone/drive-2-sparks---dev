@@ -101,7 +101,7 @@ export function LandingPage({ onAuthSuccess, user, onBackToDashboard, onNavigate
       {/* === Header === */}
       <header className="relative z-50 flex items-center justify-between px-4 sm:px-6 md:px-12 py-4 md:py-6">
         <div className="flex items-center gap-2.5">
-          <img src={faviconImg} alt="NovusSparks AI" className="w-8 h-8 md:w-10 md:h-10 object-contain" />
+          <img src={faviconImg} alt="NovusSparks AI" className="w-10 h-10 md:w-14 md:h-14 object-contain" />
           <div className="flex flex-col">
             <span className="font-bold text-lg md:text-xl tracking-tight text-white leading-tight">NovusSparks AI</span>
             <span className="text-[9px] sm:text-[10px] text-gray-500 font-medium tracking-wider">Enterprise AI Platform</span>
@@ -596,7 +596,7 @@ export function LandingPage({ onAuthSuccess, user, onBackToDashboard, onNavigate
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <img src={faviconImg} alt="" className="w-12 h-12 mx-auto mb-6 opacity-60" />
+            <img src={faviconImg} alt="" className="w-16 h-16 mx-auto mb-6 opacity-60" />
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 text-white">
               Ready to Make Smarter Decisions?
             </h2>
