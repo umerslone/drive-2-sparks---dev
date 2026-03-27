@@ -468,7 +468,7 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
                   <div
                     key={thread.id}
                     className={cn(
-                      "w-full rounded-lg border px-2 py-1.5 transition-colors group",
+                      "w-full rounded-lg border px-2 py-1.5 transition-colors",
                       activeThreadId === thread.id
                         ? "border-primary bg-primary/10"
                         : "border-border/50 hover:bg-secondary/30"
@@ -482,26 +482,28 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
                       >
                         <p className="text-xs font-medium text-foreground truncate">{thread.title}</p>
                       </button>
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          onClick={() => void handleRenameThread(thread.id, thread.title)}
-                          title="Rename thread"
-                        >
-                          <PencilSimple size={12} />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6 text-destructive hover:text-destructive"
-                          onClick={() => void handleDeleteThread(thread.id)}
-                          title="Delete thread"
-                        >
-                          <Trash size={12} />
-                        </Button>
-                      </div>
+                      {activeThreadId === thread.id && (
+                        <div className="flex items-center gap-0.5 shrink-0 animate-in fade-in slide-in-from-right-2 duration-200">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => void handleRenameThread(thread.id, thread.title)}
+                            title="Rename thread"
+                          >
+                            <PencilSimple size={12} />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-destructive hover:text-destructive"
+                            onClick={() => void handleDeleteThread(thread.id)}
+                            title="Delete thread"
+                          >
+                            <Trash size={12} />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
