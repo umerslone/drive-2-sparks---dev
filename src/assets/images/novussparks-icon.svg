@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1900 706" preserveAspectRatio="xMidYMid meet">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="65 24 732 732" preserveAspectRatio="xMidYMid meet">
  <g fill="#1b5e7c">
   <path d="M160.81 645.59 c-0.22 -0.96 0 -1.47 0.66 -1.47 1.10 0 1.40 1.91 0.37 2.50 -0.37 0.22 -0.81 -0.22 -1.03 -1.03z"/>
   <path d="M210 641.47 c-0.66 -1.62 -0.59 -1.76 0.66 -1.76 0.59 0 1.10 0.44 1.10 1.03 0 1.62 -1.25 2.06 -1.76 0.74z"/>
@@ -5657,6 +5657,4 @@
   <path d="M675.81 153.82 c-0.15 -3.53 -2.79 -7.28 -6.10 -8.60 l-3.16 -1.25 2.94 -1.03 c3.31 -1.10 5.44 -3.31 6.03 -6.32 0.44 -2.28 1.69 -2.06 1.69 0.29 0 1.91 4.56 6.47 6.54 6.47 2.28 0 1.91 1.25 -0.59 1.84 -2.79 0.59 -5 3.09 -6.25 7.06 -0.66 2.13 -1.03 2.65 -1.10 1.54z"/>
   <path d="M730.51 144.71 c-3.68 -2.13 -4.34 -5.96 -1.62 -9.12 2.28 -2.57 5.66 -2.72 8.24 -0.29 4.93 4.63 -0.81 12.72 -6.62 9.41z"/>
  </g>
- <text x="840" y="390" font-family="'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="160" fill="#38bdf8" letter-spacing="8">NOVUS</text>
- <text x="840" y="540" font-family="'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="300" font-size="130" fill="#e5a932" letter-spacing="22">SPARKS</text>
 </svg>

@@ -11,7 +11,7 @@ import { inviteService } from "@/lib/invite-system"
 import { toast } from "sonner"
 import { UserProfile } from "@/types"
 import { PasswordResetFlow } from "@/components/PasswordResetFlow"
-import faviconImg from "@/assets/images/favicon.png"
+import faviconImg from "@/assets/images/novussparks-icon.svg"
 
 interface AuthFormProps {
   onAuthSuccess: (user: UserProfile) => void

@@ -1,5 +1,5 @@
 import { MapPin, Phone, EnvelopeSimple, Globe } from "@phosphor-icons/react"
-import novussparksLogo from "@/assets/images/logo.png"
+import novussparksLogo from "@/assets/images/novussparks-icon.svg"
 
 export function Footer() {
   return (

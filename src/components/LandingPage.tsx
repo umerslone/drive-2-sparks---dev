@@ -5,7 +5,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { AuthForm } from "@/components/AuthForm"
 import { Sparkle, Target, Lightbulb, ShieldCheck, Quotes, Brain, ChartBar, Presentation, Rocket, Users, Lightning, ArrowRight, CheckCircle, ArrowLeft, UserCircle, CursorClick, Bank, Heartbeat, Buildings, HandHeart, RocketLaunch, TreeStructure, ArrowsOut, TerminalWindow, Shield, HardDrives } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
-import faviconImg from "@/assets/images/novussparks-logo.svg"
+import faviconImg from "@/assets/images/novussparks-icon.svg"
 
 import { UserProfile } from "@/types"
 

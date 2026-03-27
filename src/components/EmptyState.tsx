@@ -1,6 +1,6 @@
 import { Lightbulb, Sparkle, MagnifyingGlass, PencilLine, Rocket, ChartBar, Target, CheckCircle, Crown, Lightning } from "@phosphor-icons/react"
 import { motion } from "framer-motion"
-import faviconImg from "@/assets/images/favicon.png"
+import faviconImg from "@/assets/images/novussparks-icon.svg"
 
 const modules = [
   { icon: Target, label: "Strategy Engine", color: "text-primary", tab: "generate" },
