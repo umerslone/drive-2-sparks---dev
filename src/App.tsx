@@ -341,15 +341,13 @@ function App() {
   useEffect(() => {
     if (!user) return
 
-    const allowedTabs = new Set<string>(["generate", "saved", "ideas", "dashboard", "timeline"])
-
-    if (canUseReviewModule) {
-      allowedTabs.add("plagiarism")
-    }
-
-    if (canUseHumanizerModule) {
-      allowedTabs.add("humanizer")
-    }
+    // plagiarism & humanizer tabs are always navigable — non-entitled users
+    // see an <UpgradePaywall> inside the TabsContent, so the guard must not
+    // bounce them back to the default tab.
+    const allowedTabs = new Set<string>([
+      "generate", "saved", "ideas", "dashboard", "timeline",
+      "plagiarism", "humanizer",
+    ])
 
     if (ragChatEnabled) {
       allowedTabs.add("rag-chat")
@@ -368,7 +366,7 @@ function App() {
     if (!allowedTabs.has(activeTab)) {
       setActiveTab(getDefaultSignedInTab(ragChatEnabled))
     }
-  }, [activeTab, user, canAccessNGOSaaS, ragChatEnabled, canUseReviewModule, canUseHumanizerModule])
+  }, [activeTab, user, canAccessNGOSaaS, ragChatEnabled])
 
   const quickPromptSuggestions = useMemo(() => {
     const current = description.trim().toLowerCase()
