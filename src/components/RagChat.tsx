@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { Plus, ChatsCircle, User, Robot, ClockCounterClockwise, LinkSimple, X, Lightning } from "@phosphor-icons/react"
+import { Plus, ChatsCircle, User, Robot, ClockCounterClockwise, LinkSimple, X, Lightning, Bell, Question, UserCircle, Gift } from "@phosphor-icons/react"
 import {
   createChatThread,
   listChatThreads,
@@ -53,10 +53,30 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
 
   const starterPrompts = useMemo(
     () => [
-      "Summarize my platform architecture and suggest 3 immediate reliability improvements.",
-      "Draft a secure API rollout checklist for this project with priorities.",
-      "Review the current deployment setup and suggest a safer staging-to-production process.",
-      "Create a 7-day execution plan to improve product UX, performance, and observability.",
+      {
+        title: "How do I collect Google Maps business data?",
+        desc: "Get structured names, addresses, and phone numbers from listings.",
+      },
+      {
+        title: "How do I use proxies with Puppeteer or Selenium?",
+        desc: "Step-by-step setup for using proxies in browser automation scripts.",
+      },
+      {
+        title: "How to connect my AI agent with MCP",
+        desc: "Integrate your AI agent with MCP tools and external data workflows.",
+      },
+      {
+        title: "How do I get a proxy from a specific country or city?",
+        desc: "Route traffic by geo-location using residential, ISP, or mobile proxies.",
+      },
+      {
+        title: "What is the platform's free tier?",
+        desc: "See free-tier limits, quotas, and available capabilities.",
+      },
+      {
+        title: "I need proxies",
+        desc: "Quickly identify the right proxy solution for your use case.",
+      },
     ],
     []
   )
@@ -149,17 +169,41 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
     }
   }
 
+  const ensureActiveThread = async (): Promise<number | null> => {
+    if (activeThreadId) return activeThreadId
+    if (threads.length > 0) {
+      const firstThreadId = threads[0].id
+      setActiveThreadId(firstThreadId)
+      return firstThreadId
+    }
+
+    const thread = await createChatThread({
+      user_id: dbUserId,
+      module: "rag_chat",
+      title: "New Chat",
+    })
+
+    setThreads((current) => [thread, ...current])
+    setActiveThreadId(thread.id)
+    return thread.id
+  }
+
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || !activeThreadId || isSending) return
+    if (!text || isSending) return
 
     setIsSending(true)
     setInput("")
     try {
+      const threadId = await ensureActiveThread()
+      if (!threadId) {
+        throw new Error("Unable to resolve chat thread")
+      }
+
       const result = await sentinelQuery(text, {
         module: "rag_chat",
         userId: dbUserId,
-        threadId: activeThreadId,
+        threadId,
         persistConversation: true,
         qualityGateProfile: "lenient",
         enableQualityGate: false,
@@ -169,7 +213,7 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
         toast.info("More details needed for best response")
       }
 
-      await loadThreadData(activeThreadId)
+      await loadThreadData(threadId)
       await loadThreads()
     } catch (err) {
       console.error("Failed to send message:", err)
@@ -305,9 +349,11 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
     }
   }
 
+  const showThreadsSidebar = messages.length > 0 && threads.length > 0
+
   return (
-    <div className={cn("grid gap-4 h-full", (messages.length > 0 || threads.length > 0) ? "grid-cols-1 lg:grid-cols-[280px_1fr]" : "grid-cols-1")}>
-      {(messages.length > 0 || threads.length > 0) && (
+    <div className={cn("grid gap-4 h-full", showThreadsSidebar ? "grid-cols-1 lg:grid-cols-[280px_1fr]" : "grid-cols-1")}>
+      {showThreadsSidebar && (
         <aside className="bg-card/80 backdrop-blur-sm rounded-2xl border border-border/50 p-3">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -381,26 +427,45 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
         )}
 
         {messages.length === 0 ? (
-          <div className="w-full max-w-3xl flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500">
-            <h1 className="text-3xl md:text-4xl font-semibold text-foreground mb-8 text-center">
+          <div className="w-full max-w-5xl px-2 md:px-6 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500">
+            <div className="w-full flex items-center justify-end gap-2 mb-8">
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-card/70 px-3 py-2 text-sm text-foreground/90"
+              >
+                <Gift size={16} />
+                <span>7 days left in trial</span>
+              </button>
+              <button type="button" className="h-9 w-9 rounded-full border border-border/70 bg-card/70 inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+                <Bell size={16} />
+              </button>
+              <button type="button" className="h-9 w-9 rounded-full border border-border/70 bg-card/70 inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+                <Question size={16} />
+              </button>
+              <button type="button" className="h-9 w-9 rounded-full border border-border/70 bg-card/70 inline-flex items-center justify-center text-primary">
+                <UserCircle size={18} weight="fill" />
+              </button>
+            </div>
+
+            <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-foreground mb-8 text-center">
               Welcome, how can Techpigeon AI help you?
             </h1>
             
-            <div className="w-full relative mb-12 shadow-sm rounded-xl">
+            <div className="w-full relative mb-10 rounded-2xl border border-border/60 bg-background shadow-sm overflow-hidden">
               <Textarea
-                placeholder="Where can I..."
+                placeholder="How can I help you today?"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="min-h-[120px] resize-none pb-12 text-base rounded-xl border-border/60 bg-background/60 focus-visible:ring-primary shadow-inner"
+                className="min-h-[140px] resize-none pb-14 text-lg rounded-none border-0 bg-transparent focus-visible:ring-0"
               />
               <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                <div className="h-8 w-8 rounded-full bg-green-600/20 text-green-600 flex items-center justify-center">
+                <div className="h-9 w-9 rounded-full bg-emerald-600/15 text-emerald-600 flex items-center justify-center">
                   <Robot size={18} weight="fill" />
                 </div>
                 <Button
                   onClick={handleSend}
-                  disabled={!input.trim() || isSending || (!activeThreadId && !isCreatingThread && threads.length > 0)}
+                  disabled={!input.trim() || isSending || isCreatingThread}
                   size="icon"
                   className="rounded-full h-10 w-10 shrink-0"
                 >
@@ -410,46 +475,24 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
             </div>
 
             <div className="w-full">
-              <div className="flex items-center gap-2 text-muted-foreground mb-4">
+              <div className="flex items-center gap-2 text-muted-foreground mb-4 px-1">
                 <Lightning size={18} weight="duotone" />
                 <h2 className="text-sm font-medium">Suggested prompts</h2>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[
-                  {
-                    title: "Can I schedule tasks to run daily?",
-                    desc: "Automate recurring data collection with our scheduling tools."
-                  },
-                  {
-                    title: "How to connect my AI agent with MCP",
-                    desc: "Step-by-step guide to integrate your AI agent with the MCP server"
-                  },
-                  {
-                    title: "What is the platform's free tier?",
-                    desc: "Learn details about available free tier limits and features"
-                  },
-                  {
-                    title: "How do I track my usage and billing?",
-                    desc: "Monitor your API calls, traffic, and costs in real time."
-                  },
-                  {
-                    title: "I want to extract data from external sites",
-                    desc: "Scrape product listings, prices, and reviews reliably."
-                  },
-                  {
-                    title: "Where can I find my API key credentials?",
-                    desc: "Quickly locate your API key and proxy zone details to get started."
-                  }
-                ].map((prompt, i) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {starterPrompts.map((prompt, i) => (
                   <button
                     key={i}
                     onClick={() => {
-                      setInput(prompt.title);
+                      setInput(prompt.title)
                     }}
-                    className="flex flex-col text-left p-4 rounded-xl border border-border/50 bg-card/40 hover:bg-card hover:border-primary/50 transition-all group"
+                    className={cn(
+                      "flex flex-col text-left p-5 rounded-xl border bg-muted/30 hover:bg-card transition-all group",
+                      i === 1 ? "border-foreground/40" : "border-border/60 hover:border-primary/40"
+                    )}
                   >
                     <span className="text-sm font-medium text-foreground mb-1 group-hover:text-primary transition-colors">{prompt.title}</span>
-                    <span className="text-[13px] text-muted-foreground">{prompt.desc}</span>
+                    <span className="text-sm text-muted-foreground">{prompt.desc}</span>
                   </button>
                 ))}
               </div>
@@ -514,7 +557,7 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
                   />
                   <Button
                     onClick={handleSend}
-                    disabled={!input.trim() || isSending || (!activeThreadId && !isCreatingThread && threads.length > 0)}
+                    disabled={!input.trim() || isSending || isCreatingThread}
                     size="icon"
                     className="absolute bottom-2 right-2 rounded-lg h-8 w-8 shrink-0"
                   >
