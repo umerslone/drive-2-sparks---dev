@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal, LockSimple, Lightning, Brain } from "@phosphor-icons/react"
@@ -22,6 +22,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { toast } from "sonner"
 import { useSafeKV } from "@/hooks/useSafeKV"
 import { motion, AnimatePresence } from "framer-motion"
+import { ErrorBoundary } from "react-error-boundary"
 import { MarketingResult, SavedStrategy, UserProfile, ConceptMode, StrategyWorkflowRun } from "@/types"
 import { authService } from "@/lib/auth"
 import { BRAND_THEME_STORAGE_KEY, DEFAULT_BRAND_THEME, isBrandThemeName, type BrandThemeName } from "@/lib/brand-theme"
@@ -2577,13 +2578,20 @@ ${JSON.stringify(candidate)}`
                   Workflow Timeline
                 </Button>
               </div>
-              <Suspense fallback={<LoadingState />}>
-                <Dashboard 
-                  strategies={user.role === "admin" && adminAllStrategies.length > 0 ? adminAllStrategies : (savedStrategies || [])} 
-                  promptMemory={promptMemory || []}
-                  isAdmin={user.role === "admin"}
-                />
-              </Suspense>
+              <ErrorBoundary fallbackRender={({ resetErrorBoundary }) => (
+                <div className="p-8 text-center space-y-4">
+                  <p className="text-muted-foreground">Dashboard failed to load.</p>
+                  <Button variant="outline" size="sm" onClick={resetErrorBoundary}>Try again</Button>
+                </div>
+              )}>
+                <Suspense fallback={<LoadingState />}>
+                  <Dashboard 
+                    strategies={user.role === "admin" && adminAllStrategies.length > 0 ? adminAllStrategies : (savedStrategies || [])} 
+                    promptMemory={promptMemory || []}
+                    isAdmin={user.role === "admin"}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             </TabsContent>
 
             <TabsContent value="saved" className="space-y-6">

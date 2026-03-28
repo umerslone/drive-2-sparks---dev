@@ -54,7 +54,11 @@ const CONCEPT_MODE_COLORS: Record<string, string> = {
   ops: "bg-slate-500/20 border-slate-500/40 text-slate-700",
 }
 
-export function Dashboard({ strategies, promptMemory, onRefresh, isAdmin }: DashboardProps) {
+export function Dashboard({ strategies: rawStrategies, promptMemory: rawPromptMemory, onRefresh, isAdmin }: DashboardProps) {
+  // Defensive: ensure props are always arrays even if KV returns corrupt data
+  const strategies = Array.isArray(rawStrategies) ? rawStrategies : []
+  const promptMemory = Array.isArray(rawPromptMemory) ? rawPromptMemory : []
+
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<number>(Date.now())
 
@@ -62,8 +66,13 @@ export function Dashboard({ strategies, promptMemory, onRefresh, isAdmin }: Dash
     setIsRefreshing(true)
     toast.info("Refreshing dashboard data...")
     
-    if (onRefresh) {
-      await onRefresh()
+    try {
+      if (onRefresh) {
+        await onRefresh()
+      }
+    } catch (e) {
+      console.error("Dashboard refresh failed:", e)
+      toast.error("Failed to refresh data")
     }
     
     setTimeout(() => {
@@ -91,45 +100,59 @@ export function Dashboard({ strategies, promptMemory, onRefresh, isAdmin }: Dash
   }
 
   const stats = useMemo(() => {
-    const totalStrategies = strategies.length
-    const totalPrompts = promptMemory.reduce((sum, item) => sum + item.count, 0)
-    
-    const conceptModeCount: Record<string, number> = {}
-    promptMemory.forEach(item => {
-      const mode = item.conceptMode || "auto"
-      conceptModeCount[mode] = (conceptModeCount[mode] || 0) + item.count
-    })
+    try {
+      const totalStrategies = strategies.length
+      const totalPrompts = promptMemory.reduce((sum, item) => sum + (item?.count || 0), 0)
+      
+      const conceptModeCount: Record<string, number> = {}
+      promptMemory.forEach(item => {
+        if (!item) return
+        const mode = item.conceptMode || "auto"
+        conceptModeCount[mode] = (conceptModeCount[mode] || 0) + (item.count || 0)
+      })
 
-    const conceptModeStats: ConceptModeStats[] = Object.entries(conceptModeCount)
-      .map(([mode, count]) => ({
-        mode,
-        count,
-        percentage: totalPrompts > 0 ? (count / totalPrompts) * 100 : 0,
-      }))
-      .sort((a, b) => b.count - a.count)
+      const conceptModeStats: ConceptModeStats[] = Object.entries(conceptModeCount)
+        .map(([mode, count]) => ({
+          mode,
+          count,
+          percentage: totalPrompts > 0 ? (count / totalPrompts) * 100 : 0,
+        }))
+        .sort((a, b) => b.count - a.count)
 
-    const mostUsedMode = conceptModeStats[0]?.mode || "auto"
+      const mostUsedMode = conceptModeStats[0]?.mode || "auto"
 
-    const now = Date.now()
-    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000
-    const recentStrategies = strategies.filter(s => s.timestamp >= sevenDaysAgo).length
+      const now = Date.now()
+      const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000
+      const recentStrategies = strategies.filter(s => s?.timestamp >= sevenDaysAgo).length
 
-    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000
-    const monthlyStrategies = strategies.filter(s => s.timestamp >= thirtyDaysAgo).length
+      const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000
+      const monthlyStrategies = strategies.filter(s => s?.timestamp >= thirtyDaysAgo).length
 
-    const oldestStrategy = strategies.length > 0 
-      ? Math.min(...strategies.map(s => s.timestamp))
-      : Date.now()
-    const daysSinceFirstStrategy = Math.floor((now - oldestStrategy) / (1000 * 60 * 60 * 24))
+      const oldestStrategy = strategies.length > 0 
+        ? Math.min(...strategies.map(s => s?.timestamp || Date.now()))
+        : Date.now()
+      const daysSinceFirstStrategy = Math.floor((now - oldestStrategy) / (1000 * 60 * 60 * 24))
 
-    return {
-      totalStrategies,
-      totalPrompts,
-      conceptModeStats,
-      mostUsedMode,
-      recentStrategies,
-      monthlyStrategies,
-      daysSinceFirstStrategy,
+      return {
+        totalStrategies,
+        totalPrompts,
+        conceptModeStats,
+        mostUsedMode,
+        recentStrategies,
+        monthlyStrategies,
+        daysSinceFirstStrategy,
+      }
+    } catch (e) {
+      console.error("Dashboard stats computation failed:", e)
+      return {
+        totalStrategies: 0,
+        totalPrompts: 0,
+        conceptModeStats: [] as ConceptModeStats[],
+        mostUsedMode: "auto",
+        recentStrategies: 0,
+        monthlyStrategies: 0,
+        daysSinceFirstStrategy: 0,
+      }
     }
   }, [strategies, promptMemory])
 
@@ -143,7 +166,7 @@ export function Dashboard({ strategies, promptMemory, onRefresh, isAdmin }: Dash
 
   const mostRecentStrategy = strategies.length > 0 
     ? strategies.reduce((latest, current) => 
-        current.timestamp > latest.timestamp ? current : latest
+        (current?.timestamp || 0) > (latest?.timestamp || 0) ? current : latest
       )
     : null
 
