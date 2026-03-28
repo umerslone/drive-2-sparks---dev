@@ -92,6 +92,9 @@ export function Footer() {
           <p className="text-sm text-muted-foreground">
             &copy; {new Date().getFullYear()} NovusSparks. All rights reserved.
           </p>
+          <p className="text-sm">
+            <a href="/privacy" className="text-muted-foreground hover:text-primary transition-colors">Privacy & Data Policy</a>
+          </p>
           <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
             <img src={techpigeonLogo} alt="" className="w-4 h-4 inline-block" />
             Powered by <a href="https://www.techpigeon.com.pk" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Techpigeon</a>

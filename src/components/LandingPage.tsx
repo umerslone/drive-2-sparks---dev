@@ -634,6 +634,7 @@ export function LandingPage({ onAuthSuccess, user, onBackToDashboard, onNavigate
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <a href="/privacy" className="hover:text-gray-400 transition-colors text-gray-500">Privacy Policy</a>
             {user ? (
               <button onClick={onBackToDashboard} className="hover:text-gray-400 transition-colors text-slate-50">Dashboard</button>
             ) : (

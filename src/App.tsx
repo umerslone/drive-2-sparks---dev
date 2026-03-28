@@ -48,6 +48,7 @@ const AdminDashboard = lazy(() => import("@/components/AdminDashboard").then(m =
 const EnterpriseAdmin = lazy(() => import("@/components/EnterpriseAdmin").then(m => ({ default: m.EnterpriseAdmin })))
 const SavedStrategies = lazy(() => import("@/components/SavedStrategies").then(m => ({ default: m.SavedStrategies })))
 const AirtableIntegration = lazy(() => import("@/components/integrations/AirtableIntegration").then(m => ({ default: m.AirtableIntegration })))
+const PrivacyPolicy = lazy(() => import("@/components/PrivacyPolicy").then(m => ({ default: m.PrivacyPolicy })))
 const AutomationsPanel = lazy(() => import("@/components/automations/AutomationsPanel").then(m => ({ default: m.AutomationsPanel })))
 const ComparisonView = lazy(() => import("@/components/ComparisonView").then(m => ({ default: m.ComparisonView })))
 const StrategyTemplatesBrowser = lazy(() => import("@/components/StrategyTemplatesBrowser").then(m => ({ default: m.StrategyTemplatesBrowser })))
@@ -1382,6 +1383,15 @@ ${JSON.stringify(candidate)}`
       action: () => setActiveTab("ideas"),
     }
   }, [result, savedStrategies, strategyPlan])
+
+  // ── URL-based page routing (shareable pages, no auth required) ──
+  if (window.location.pathname === "/privacy") {
+    return (
+      <Suspense fallback={<div className="flex items-center justify-center h-screen"><p className="text-muted-foreground">Loading...</p></div>}>
+        <PrivacyPolicy onBack={() => { window.history.pushState({}, "", "/"); window.location.reload() }} />
+      </Suspense>
+    )
+  }
 
   if (isCheckingAuth) {
     return (

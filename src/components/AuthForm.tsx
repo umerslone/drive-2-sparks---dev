@@ -292,7 +292,7 @@ export function AuthForm({ onAuthSuccess, initialMode }: AuthFormProps) {
           </div>
 
           <div className="text-center text-xs text-muted-foreground mt-6">
-            <p>By signing in, you agree to our terms of service</p>
+            <p>By signing in, you agree to our <a href="/privacy" className="text-primary hover:underline">Privacy & Data Policy</a></p>
           </div>
         </Card>
       </motion.div>
