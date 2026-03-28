@@ -105,13 +105,6 @@ export function AuthForm({ onAuthSuccess, initialMode }: AuthFormProps) {
     }
   }
 
-  const toggleAuthMode = () => {
-    setIsSignUp(!isSignUp)
-    setEmail("")
-    setPassword("")
-    setFullName("")
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,_oklch(0.65_0.22_240_/_0.08)_0%,_transparent_50%),radial-gradient(circle_at_70%_80%,_oklch(0.48_0.18_240_/_0.1)_0%,_transparent_50%)] pointer-events-none" />
@@ -240,16 +233,14 @@ export function AuthForm({ onAuthSuccess, initialMode }: AuthFormProps) {
             </Button>
 
             <div className="text-center">
-              <button
-                type="button"
-                onClick={toggleAuthMode}
+              <a
+                href={isSignUp ? "/login" : "/signup"}
                 className="text-sm text-primary hover:underline"
-                disabled={isLoading}
               >
                 {isSignUp
                   ? "Already have an account? Sign in"
                   : "Don't have an account? Sign up"}
-              </button>
+              </a>
             </div>
           </form>
 

@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { AuthForm } from "@/components/AuthForm"
 import { Sparkle, Target, Lightbulb, ShieldCheck, Quotes, Brain, ChartBar, Presentation, Rocket, Users, Lightning, ArrowRight, CheckCircle, ArrowLeft, UserCircle, CursorClick, Bank, Heartbeat, Buildings, HandHeart, RocketLaunch, TreeStructure, ArrowsOut, TerminalWindow, Shield, HardDrives } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import faviconImg from "@/assets/images/novussparks-icon.svg"
@@ -64,7 +62,6 @@ const COLOR_MAP: Record<string, { bg: string; text: string; glow: string }> = {
 
 export function LandingPage({ onAuthSuccess, user, onBackToDashboard, onNavigate }: LandingPageProps) {
   const [activeQuote, setActiveQuote] = useState<QuoteNode | null>(null)
-  const [authModal, setAuthModal] = useState<"login" | "signup" | null>(null)
   const [hoveredPill, setHoveredPill] = useState<string | null>(null)
   const [hasClickedDot, setHasClickedDot] = useState(false)
   const [showDotHint, setShowDotHint] = useState(false)
@@ -83,12 +80,12 @@ export function LandingPage({ onAuthSuccess, user, onBackToDashboard, onNavigate
   }, [])
 
   const openAuth = useCallback((mode: "login" | "signup") => {
-    // If user is already logged in, go to dashboard instead of opening auth modal
+    // If user is already logged in, go to dashboard instead of navigating to auth page
     if (user && onBackToDashboard) {
       onBackToDashboard()
       return
     }
-    setAuthModal(mode)
+    window.location.href = mode === "signup" ? "/signup" : "/login"
   }, [user, onBackToDashboard])
 
   return (
@@ -646,18 +643,6 @@ export function LandingPage({ onAuthSuccess, user, onBackToDashboard, onNavigate
           </div>
         </div>
       </footer>
-      {/* === Auth Modal — Properly wrapped === */}
-      <Dialog open={authModal !== null} onOpenChange={(open) => { if (!open) setAuthModal(null) }}>
-        <DialogContent className="max-w-md p-0 border-0 bg-transparent shadow-none [&>button]:hidden">
-          <AuthForm
-            onAuthSuccess={(u) => {
-              setAuthModal(null)
-              onAuthSuccess?.(u)
-            }}
-            initialMode={authModal ?? "login"}
-          />
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

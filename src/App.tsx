@@ -52,6 +52,8 @@ const PrivacyPolicy = lazy(() => import("@/components/PrivacyPolicy").then(m => 
 const AutomationsPanel = lazy(() => import("@/components/automations/AutomationsPanel").then(m => ({ default: m.AutomationsPanel })))
 const ComparisonView = lazy(() => import("@/components/ComparisonView").then(m => ({ default: m.ComparisonView })))
 const StrategyTemplatesBrowser = lazy(() => import("@/components/StrategyTemplatesBrowser").then(m => ({ default: m.StrategyTemplatesBrowser })))
+const SignupPage = lazy(() => import("@/components/SignupPage").then(m => ({ default: m.SignupPage })))
+const LoginPage = lazy(() => import("@/components/LoginPage").then(m => ({ default: m.LoginPage })))
 
 interface PromptMemoryItem {
   prompt: string
@@ -1389,6 +1391,22 @@ ${JSON.stringify(candidate)}`
     return (
       <Suspense fallback={<div className="flex items-center justify-center h-screen"><p className="text-muted-foreground">Loading...</p></div>}>
         <PrivacyPolicy onBack={() => { window.history.pushState({}, "", "/"); window.location.reload() }} />
+      </Suspense>
+    )
+  }
+
+  if (window.location.pathname === "/signup") {
+    return (
+      <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[#0a0f18]"><p className="text-gray-400">Loading...</p></div>}>
+        <SignupPage onAuthSuccess={handleAuthSuccess} />
+      </Suspense>
+    )
+  }
+
+  if (window.location.pathname === "/login") {
+    return (
+      <Suspense fallback={<div className="flex items-center justify-center h-screen bg-[#0a0f18]"><p className="text-gray-400">Loading...</p></div>}>
+        <LoginPage onAuthSuccess={handleAuthSuccess} />
       </Suspense>
     )
   }
