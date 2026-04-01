@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { fetchApi } from "../../../lib/utils"
 
 interface AuditLogEntry {
@@ -22,7 +22,7 @@ interface AuditLogEntry {
   resource: string
   resourceId?: string
   ipAddress?: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
   success: boolean
   timestamp: string
 }

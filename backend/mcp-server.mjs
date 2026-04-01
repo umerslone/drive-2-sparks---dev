@@ -90,7 +90,7 @@ export async function handleMcpRequest(req, res, method, pathname) {
     let parsedBody;
     try {
       parsedBody = JSON.parse(bodyText);
-    } catch (err) {
+    } catch {
       res.writeHead(400, { "Content-Type": "text/plain" });
       res.end("Invalid JSON");
       return true;

@@ -13,7 +13,7 @@ async function main() {
   
   try {
     await client.connect();
-    const schema = await fs.readFile("src/sentinel/db/migrations.sql", "utf-8");
+    await fs.readFile("src/sentinel/db/migrations.sql", "utf-8");
 
     console.log("Skipping migrations as they already applied or failing on constraints...");
     // await client.query(schema);

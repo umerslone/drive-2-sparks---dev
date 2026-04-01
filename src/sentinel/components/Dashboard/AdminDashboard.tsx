@@ -17,73 +17,25 @@ import {
   type UpgradeRequest,
 } from "../../api/subscription"
 import { SUBSCRIPTION_DEFINITIONS, SENTINEL_MODULES } from "../../config"
+import { fetchApi } from "../../../lib/utils"
 import type {
   SentinelUser,
   UserSubscription,
   SubscriptionTier,
-  AuditLogEntry,
-  AuditAction,
-  AuditLogQuery,
   AuditStats,
   SystemStats,
   OrgModuleSubscription,
 } from "../../types/index"
 
-// ─────────────────────────── Backend API helpers ─────────────────
-
-function getApiBase(): string {
-  if (typeof import.meta !== "undefined" && import.meta.env?.VITE_BACKEND_API_BASE_URL) {
-    return import.meta.env.VITE_BACKEND_API_BASE_URL;
-  }
-  return "";
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const token = localStorage.getItem("sentinel-auth-token")
-  const headers: Record<string, string> = token
-    ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-    : { "Content-Type": "application/json" }
-  // M1 fix: Attach CSRF token from cookie
-  try {
-    const csrfMatch = document.cookie
-      .split(";")
-      .map((c: string) => c.trim())
-      .find((c: string) => c.startsWith("__csrf="))
-    if (csrfMatch) {
-      headers["X-CSRF-Token"] = csrfMatch.slice("__csrf=".length)
-    }
-  } catch {
-    // cookie unavailable
-  }
-  return headers
-}
-
-async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, {
-    ...init,
-    headers: { ...getAuthHeaders(), ...(init?.headers || {}) },
-    credentials: "include", // M1: Send CSRF cookie
-  })
-  return res.json() as Promise<T>
-}
-
 // ─────────────────────────── Types ───────────────────────────────
 
 type AdminTab = "overview" | "users" | "subscriptions" | "requests" | "audit" | "module-subs"
 
-interface AuditPageResponse {
+interface SystemStatsResponse extends SystemStats {
   ok: boolean
-  logs: AuditLogEntry[]
-  total: number
-  limit: number
-  offset: number
 }
 
 interface AuditStatsResponse extends AuditStats {
-  ok: boolean
-}
-
-interface SystemStatsResponse extends SystemStats {
   ok: boolean
 }
 
@@ -121,16 +73,6 @@ const STATUS_COLORS: Record<string, string> = {
   SUSPENDED: "bg-orange-100 text-orange-700",
 }
 
-const ALL_ACTIONS: AuditAction[] = [
-  "LOGIN", "LOGOUT", "CREATE", "READ", "UPDATE", "DELETE",
-  "EXPORT", "UPLOAD", "ASSIGN_ROLE", "ASSIGN_SUBSCRIPTION",
-  "SUBMIT", "APPROVE", "SIGN", "PUBLISH", "REVERT",
-]
-
-function formatTs(ts: number): string {
-  return new Date(ts).toLocaleString()
-}
-
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString()
 }
@@ -149,6 +91,9 @@ export function AdminDashboard() {
 
   // System stats (overview tab)
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
+
+  // Audit stats (overview tab)
+  const [auditStats, setAuditStats] = useState<AuditStats | null>(null)
 
   // Module subscriptions (module-subs tab)
   const [modSubs, setModSubs] = useState<OrgModuleSubscription[]>([])
@@ -189,6 +134,15 @@ export function AdminDashboard() {
     }
   }, [])
 
+  const loadAuditStats = useCallback(async () => {
+    try {
+      const resp = await fetchApi<AuditStatsResponse>("/api/sentinel/audit/stats")
+      if (resp.ok) setAuditStats(resp)
+    } catch (err) {
+      console.error("Audit stats error:", err)
+    }
+  }, [])
+
   const loadModSubs = useCallback(async () => {
     setModSubsLoading(true)
     try {
@@ -205,7 +159,8 @@ export function AdminDashboard() {
   useEffect(() => {
     void loadLegacyData()
     void loadSystemStats()
-  }, [loadLegacyData, loadSystemStats])
+    void loadAuditStats()
+  }, [loadLegacyData, loadSystemStats, loadAuditStats])
 
   useEffect(() => {
     if (activeTab === "module-subs") void loadModSubs()

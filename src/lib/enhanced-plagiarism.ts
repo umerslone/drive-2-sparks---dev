@@ -11,6 +11,7 @@ import { PlagiarismResult } from "@/types"
 
 export async function performEnhancedPlagiarismCheck(
   text: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   spark: any,
   maxRetries: number = 3
 ): Promise<{ result: PlagiarismResult; advancedMetrics: AdvancedDetectionResult }> {
@@ -55,6 +56,7 @@ export async function performEnhancedPlagiarismCheck(
     const basicCleanup = cleanedResponse
       .replace(/,\s*}/g, "}")
       .replace(/,\s*]/g, "]")
+      // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x1F\x7F]/g, (ch) => ch === "\n" || ch === "\r" || ch === "\t" ? " " : "")
     repairAttempts.push(basicCleanup)
 

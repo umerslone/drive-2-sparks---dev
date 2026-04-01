@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal, LockSimple, Lightning, Brain } from "@phosphor-icons/react"
@@ -990,13 +990,13 @@ ${JSON.stringify(candidate)}`
                     // Ignore fetch failures for mock webhooks
                   })
                   toast.success(`Automation: Webhook triggered to ${rule.action.target.substring(0, 20)}...`)
-                } catch (e) {
+                } catch {
                   // Ignore
                 }
               }
             }
           }
-        } catch (e) {
+        } catch {
           // parse error
         }
       }

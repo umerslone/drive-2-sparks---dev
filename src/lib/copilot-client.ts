@@ -1,4 +1,4 @@
-import { storeSecret, retrieveSecret, hasSecret } from "@/lib/secret-store"
+import { storeSecret, retrieveSecret } from "@/lib/secret-store"
 
 const COPILOT_TOKEN_KEY = "sentinel-copilot-token"
 

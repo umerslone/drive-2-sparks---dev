@@ -2,7 +2,7 @@ import { DocumentFingerprintRecord, ExternalSourceMatch } from "@/types"
 
 export function normalizeDocumentText(text: string): string {
   return text
-    .replace(/\u0000/g, "")
+    .split('\u0000').join('')
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")

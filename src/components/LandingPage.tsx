@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Sparkle, Target, Lightbulb, ShieldCheck, Quotes, Brain, ChartBar, Presentation, Rocket, Users, Lightning, ArrowRight, CheckCircle, ArrowLeft, UserCircle, CursorClick, Bank, Heartbeat, Buildings, HandHeart, RocketLaunch, TreeStructure, ArrowsOut, TerminalWindow, Shield, HardDrives } from "@phosphor-icons/react"
+import { Sparkle, Target, Lightbulb, ShieldCheck, Quotes, Brain, ChartBar, Presentation, Rocket, Lightning, ArrowRight, CheckCircle, ArrowLeft, UserCircle, CursorClick, Bank, Heartbeat, Buildings, HandHeart, RocketLaunch, TreeStructure, ArrowsOut, TerminalWindow, Shield, HardDrives } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import faviconImg from "@/assets/images/novussparks-icon.svg"
 import techpigeonLogo from "@/assets/images/techpigeon-logo.png"
@@ -60,7 +60,7 @@ const COLOR_MAP: Record<string, { bg: string; text: string; glow: string }> = {
   gold: { bg: "bg-[#e5a932]/20", text: "text-[#e5a932]", glow: "shadow-[#e5a932]/30" },
 }
 
-export function LandingPage({ onAuthSuccess, user, onBackToDashboard, onNavigate }: LandingPageProps) {
+export function LandingPage({ user, onBackToDashboard, onNavigate }: LandingPageProps) {
   const [activeQuote, setActiveQuote] = useState<QuoteNode | null>(null)
   const [hoveredPill, setHoveredPill] = useState<string | null>(null)
   const [hasClickedDot, setHasClickedDot] = useState(false)

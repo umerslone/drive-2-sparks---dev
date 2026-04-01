@@ -57,14 +57,6 @@ interface TextStats {
   characterCount: number
 }
 
-interface SentenceMetrics {
-  length: number
-  complexity: number
-  entropy: number
-  punctuationDensity: number
-  capitalRatio: number
-}
-
 /**
  * Calculate comprehensive text statistics
  */
@@ -187,8 +179,6 @@ export function calculateStylometricScore(text: string): number {
   
   // Vocabulary diversity (Type-Token Ratio)
   // AI often has higher TTR (more varied vocabulary) unnaturally
-  const ttrScore = Math.abs(stats.typeTokenRatio - 0.5) * 200 // Penalize extremes
-  
   // Sentence length variation (human writers vary more)
   const sentences = stats.sentences
   const sentenceLengths = sentences.map(s => s.split(/\s+/).length)
@@ -249,12 +239,6 @@ export function calculateTokenLikelihoodScore(text: string): number {
   }
   const avgBigramFreq = totalBigramFreq / bigrams.size
   
-  let totalTrigramFreq = 0
-  for (const freq of trigrams.values()) {
-    totalTrigramFreq += freq
-  }
-  const avgTrigramFreq = totalTrigramFreq / trigrams.size
-  
   // Unique sequences (human writers use more unique sequences)
   const uniqueBigrams = bigrams.size
   const uniqueTrigrams = trigrams.size
@@ -289,7 +273,7 @@ export function calculateRepetitionPatternScore(text: string): number {
   
   // Calculate repetition factor
   let repetitionScore = 0
-  for (const [phrase, count] of phrases.entries()) {
+  for (const [, count] of phrases.entries()) {
     if (count > 1) {
       // Heavy penalty for frequently repeated phrases
       repetitionScore += (count - 1) * 2
@@ -398,10 +382,6 @@ export function calculateAdvancedPlagiarismScore(text: string): number {
   // AI-generated or plagiarized text often has more uniform sentence lengths
   if (stdDev < stats.avgSentenceLength * 0.3) plagiarismIndicators++
   
-  // Check for citation patterns
-  const citationPatterns = (text.match(/\([^)]*\d{4}[^)]*\)|\b[A-Z][a-z]+\s+et\s+al\./g) || []).length
-  const citationDensity = citationPatterns / totalSentences
-  
   // Check academic phrase density
   const academicPhrases = (text.match(/\b(is defined as|can be seen|as mentioned|it is argued|context of)\b/gi) || []).length
   const academicDensity = academicPhrases / stats.wordCount
@@ -429,7 +409,6 @@ export function calculateCitationQualityScore(text: string): number {
   
   // Check for complete citations
   const incompleteCitations = references.filter((ref: string) => {
-    const year = ref.match(/\d{4}/)
     return !ref.includes(',') || ref.length < 10
   }).length
   

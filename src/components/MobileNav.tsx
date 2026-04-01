@@ -18,7 +18,6 @@ export function MobileNav({
   activeTab,
   onTabChange,
   isAdmin,
-  savedCount,
   canAccessReview = true,
   canUseHumanizer = true,
   canAccessNGOSaaS = false,
