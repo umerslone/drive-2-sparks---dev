@@ -619,21 +619,27 @@ async function handleLogin(req, res) {
   }
 
   try {
+    console.log(`[auth/login] Attempting login for ${email}`)
     const user = await getUserByEmailForLogin(email)
     if (!user) {
+      console.log(`[auth/login] User not found: ${email}`)
       return sendJson(res, 401, { ok: false, error: "Invalid email or password" }, req)
     }
 
     if (!user.isActive) {
+      console.log(`[auth/login] User inactive: ${email}`)
       return sendJson(res, 403, { ok: false, error: "Account is deactivated" }, req)
     }
 
+    console.log(`[auth/login] Verifying password for ${email}`)
     // H2 fix: verifyPassword now returns { verified, needsRehash }
     const pwResult = await verifyPassword(password, user.passwordHash)
     if (!pwResult.verified) {
+      console.log(`[auth/login] Password verification failed for ${email}`)
       return sendJson(res, 401, { ok: false, error: "Invalid email or password" }, req)
     }
 
+    console.log(`[auth/login] Password verified for ${email}`)
     // H2 fix: Re-hash legacy SHA-256 passwords to bcrypt on successful login
     if (pwResult.needsRehash) {
       const newHash = await hashPassword(password)
@@ -642,8 +648,19 @@ async function handleLogin(req, res) {
       })
     }
 
-    // Get subscription info for token
-    const subscription = await getUserSubscription(user.id)
+    // Get subscription info for token with timeout
+    console.log(`[auth/login] Getting subscription for ${user.id}`)
+    let subscription = null
+    try {
+      const subscriptionPromise = getUserSubscription(user.id)
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Subscription query timeout")), 5000)
+      )
+      subscription = await Promise.race([subscriptionPromise, timeoutPromise])
+    } catch (err) {
+      console.warn("[auth/login] getUserSubscription failed or timed out:", err.message)
+      subscription = null
+    }
     const tier = subscription?.tier || null
 
     // Sign JWT
@@ -672,6 +689,7 @@ async function handleLogin(req, res) {
     delete safeUser.passwordHash
     // M1 fix: Set CSRF cookie on login
     const csrfToken = generateCsrfToken()
+    console.log(`[auth/login] Login successful for ${email}`)
     return sendJson(res, 200, {
       ok: true,
       token,
