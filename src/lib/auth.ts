@@ -88,7 +88,7 @@ function getBackendBaseUrl(): string {
   return ""
 }
 
-async function postBackend(path: string, payload: unknown): Promise<{ ok: boolean; status: number; data?: any }> {
+async function postBackend(path: string, payload: unknown): Promise<{ ok: boolean; status: number; data?: Record<string, unknown> | null }> {
   try {
     const res = await fetch(`${getBackendBaseUrl()}${path}`, {
       method: "POST",
