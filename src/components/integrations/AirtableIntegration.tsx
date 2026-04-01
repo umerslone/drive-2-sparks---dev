@@ -65,7 +65,7 @@ export function AirtableIntegration() {
       
       if (data.records && Array.isArray(data.records)) {
         // Format the records into a readable string context
-        const formattedContext = data.records.map((r: any) => {
+        const formattedContext = data.records.map((r: { id: string; fields: Record<string, unknown> }) => {
           return `Record ID: ${r.id}\nFields: ${JSON.stringify(r.fields, null, 2)}`
         }).join("\n\n")
 

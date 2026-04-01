@@ -313,7 +313,7 @@ const ACTIVE_SUB_STATUSES = new Set(["ACTIVE", "TRIAL", "GRACE_PERIOD"])
  * @param {number} [params.usedSeats] - Current seat count for the org+module
  * @returns {{ allowed: boolean, reason?: string, requiredTier?: string }}
  */
-export function checkModuleAccess({ role, tier, moduleName, modulePermissions, orgModuleSubscription, usedSeats }) {
+export function checkModuleAccess({ role, tier, moduleName, modulePermissions, orgModuleSubscription }) {
   // SENTINEL_COMMANDER always has access
   if (role === "SENTINEL_COMMANDER") {
     return { allowed: true }

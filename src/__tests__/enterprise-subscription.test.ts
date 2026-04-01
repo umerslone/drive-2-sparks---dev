@@ -9,7 +9,6 @@ import {
   canModifyContent,
   canGrantAccess,
   type EnterpriseSubscription,
-  type EnterpriseRole,
 } from "@/lib/enterprise-subscription"
 import type { UserProfile } from "@/types"
 

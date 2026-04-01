@@ -16,7 +16,6 @@ import {
   verifyPassword,
   authenticateRequest,
   extractToken,
-  isRefreshEligible,
   isJwtConfigured,
   signReport,
   hashReportContent,
@@ -35,7 +34,6 @@ import {
   getOrganization,
   listOrgUsers,
   writeAuditLog,
-  getAuditLogs,
   grantModulePermission as dbGrantModulePerm,
   revokeModulePermission as dbRevokeModulePerm,
   getReportById,
@@ -73,7 +71,6 @@ import {
   canPerformAction,
   hasMinimumRole,
   checkModuleAccess,
-  checkModuleGrantPermission,
   checkModuleGrantWithSeats,
   checkReportAction,
   MODULES,
@@ -611,7 +608,8 @@ async function handleLogin(req, res) {
     }).catch(() => {})
 
     // Return user info (without passwordHash)
-    const { passwordHash: _, ...safeUser } = user
+    const safeUser = { ...user }
+    delete safeUser.passwordHash
     // M1 fix: Set CSRF cookie on login
     const csrfToken = generateCsrfToken()
     return sendJson(res, 200, {
@@ -2698,7 +2696,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const rows = await executeProxyQuery("SELECT 1 as ping", [])
       return sendJson(res, 200, { ok: true, connected: rows.length > 0 }, req)
-    } catch (err) {
+    } catch {
       return sendJson(res, 200, { ok: false, error: "Connection failed" }, req)
     }
   }
@@ -2828,7 +2826,7 @@ const server = http.createServer(async (req, res) => {
       const data = await response.json()
       const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || "").toLowerCase()
       return sendJson(res, 200, { ok: text.includes("ok") }, req)
-    } catch (err) {
+    } catch {
       return sendJson(res, 200, { ok: false, error: "Gemini connection test failed" }, req)
     }
   }
@@ -2895,7 +2893,7 @@ const server = http.createServer(async (req, res) => {
 
 // ─────────────────────────── Process Error Handlers ──────────────
 
-process.on("unhandledRejection", (reason, promise) => {
+process.on("unhandledRejection", (reason) => {
   console.error("[FATAL] Unhandled promise rejection:", reason)
 })
 

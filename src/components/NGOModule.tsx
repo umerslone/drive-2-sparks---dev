@@ -34,7 +34,6 @@ import {
   MapPin,
   FloppyDisk,
   Trash,
-  PencilSimple,
   Signature,
   UserPlus,
 } from "@phosphor-icons/react"
@@ -426,7 +425,7 @@ function parseNGOResult(raw: unknown): NGOResult {
     .trim()
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
-    .replace(/\u0000/g, "")
+    .split('\u0000').join('')
 
   try {
     return coerce(JSON.parse(normalized) as NGOResult)
@@ -966,7 +965,7 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
 
   const extractProjectDetailsFromText = (text: string, fileName: string) => {
     const normalized = text
-      .replace(/\u0000/g, "")
+      .split('\u0000').join('')
       .replace(/\r/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim()
@@ -1392,7 +1391,7 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
         }
       }
 
-      const normalizedContent = content.replace(/\u0000/g, "").trim()
+      const normalizedContent = content.split('\u0000').join('').trim()
       const printable = normalizedContent.replace(/[\x20-\x7E\n\r\t]/g, "")
       const printableRatio = normalizedContent.length > 0
         ? (normalizedContent.length - printable.length) / normalizedContent.length
@@ -1468,14 +1467,14 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
     if (uploadedKBFiles.length === 0 && !kbContentSummary.trim()) return ""
     const fileContent = uploadedKBFiles.map(f => {
       const cleaned = f.content
-        .replace(/\u0000/g, "")
+        .split('\u0000').join('')
         .trim()
       const truncated = cleaned.length > 6000
         ? cleaned.substring(0, 6000) + "\n[... content truncated ...]" : cleaned
       return `--- File: ${f.name} ---\n${truncated}`
     }).join("\n\n")
     const summary = kbContentSummary
-      ? kbContentSummary.replace(/\u0000/g, "").trim()
+      ? kbContentSummary.split('\u0000').join('').trim()
       : ""
     return `\n\nREFERENCE MATERIALS FROM KNOWLEDGE BASE:\n${fileContent}${summary ? `\n\nPRIMARY FILE SUMMARY:\n${summary}` : ""}`
   }

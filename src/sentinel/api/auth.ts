@@ -35,7 +35,6 @@ import {
 import {
   SENTINEL_KV_KEYS,
   SENTINEL_TOKEN,
-  SENTINEL_CONFIG,
 } from "../config"
 import type {
   SentinelUser,

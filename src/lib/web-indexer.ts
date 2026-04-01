@@ -12,7 +12,7 @@ export async function indexWebResource(url: string, sector?: string, documentId?
   
   // 1. Fetch content (this is a simulation of the Bright Data MCP 'bright_data_scrape' tool)
   // In reality, you could call your backend proxy which calls the MCP server.
-  const proxyUrl = new URL('/api/platform/query', window.location.origin)
+  // Backend proxy URL: /api/platform/query (relative to window.location.origin)
   const simulatedContent = `Simulated extracted content for ${url} from Bright Data MCP Server. This content would contain the full markdown or text of the page. NovusSparks AI can now retrieve this.`
   
   // 2. Chunking logic (simple splitting for demo purposes)
