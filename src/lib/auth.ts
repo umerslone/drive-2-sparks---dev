@@ -506,7 +506,7 @@ export const authService = {
         if (backendRes.ok && backendRes.data?.ok) {
           return { success: true }
         }
-        return { success: false, error: backendRes.data?.error || "Failed to process reset request. Please try again." }
+        return { success: false, error: (backendRes.data?.error as string) || "Failed to process reset request. Please try again." }
       }
 
       const kv = getSafeKVClient()
@@ -551,7 +551,7 @@ export const authService = {
         if (backendRes.ok && backendRes.data?.ok) {
           return { success: true }
         }
-        return { success: false, error: backendRes.data?.error || "Invalid or expired reset code" }
+        return { success: false, error: (backendRes.data?.error as string) || "Invalid or expired reset code" }
       }
 
       const kv = getSafeKVClient()
@@ -598,7 +598,7 @@ export const authService = {
         if (backendRes.ok && backendRes.data?.ok) {
           return { success: true }
         }
-        return { success: false, error: backendRes.data?.error || "Failed to reset password. Please try again." }
+        return { success: false, error: (backendRes.data?.error as string) || "Failed to reset password. Please try again." }
       }
 
       const verifyResult = await this.verifyResetCode(email, code)
