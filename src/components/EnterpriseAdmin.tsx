@@ -19,6 +19,7 @@ import {
   listEnterpriseCreditUsage,
   type EnterpriseCreditUsageEntry,
 } from "@/lib/enterprise-subscription"
+import { bootstrapOrganization } from "@/lib/org-members"
 import { NGOAccessLevel } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -178,9 +179,21 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
   async function handleCreateSubscription() {
     try {
       setError(null)
+      const bootstrap = await bootstrapOrganization({
+        name: `${user.fullName || user.email} Enterprise`,
+        tier: setupTier,
+      })
+      if (!bootstrap.success) {
+        setError(bootstrap.error || "Failed to create backend organization")
+        return
+      }
+
+      const backendOrganizationId = typeof bootstrap.organization?.id === "string"
+        ? bootstrap.organization.id
+        : organizationId
       const tierFeatures = getEnterpriseFeatures(setupTier)
       const created: EnterpriseSubscription = {
-        organizationId,
+        organizationId: backendOrganizationId,
         plan: setupPlan,
         tier: setupTier,
         ownerId: user.id,
@@ -197,7 +210,7 @@ export function EnterpriseAdmin({ user, organizationId }: EnterpriseAdminProps) 
       }
 
       await saveEnterpriseSubscription(created)
-      await reconcileEnterpriseMemberEntitlements(organizationId)
+      await reconcileEnterpriseMemberEntitlements(backendOrganizationId)
       await loadSubscription()
     } catch (err) {
       setError("Failed to create subscription")

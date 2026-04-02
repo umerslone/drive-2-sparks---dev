@@ -577,6 +577,28 @@ export async function assignUserToOrganization(userId, organizationId, role) {
   return rows[0] || null
 }
 
+export async function createOrganization({ name, adminUserId, tier = "ENTERPRISE" }) {
+  const sql = getSql()
+  const orgId = crypto.randomUUID()
+
+  const rows = await sql`
+    INSERT INTO sentinel_organizations (id, name, tier, admin_user_id)
+    VALUES (${orgId}, ${name}, ${tier}, ${adminUserId})
+    RETURNING id, name, subscription_id AS "subscriptionId",
+              tier, admin_user_id AS "adminUserId",
+              EXTRACT(EPOCH FROM created_at)::BIGINT * 1000 AS "createdAt",
+              EXTRACT(EPOCH FROM updated_at)::BIGINT * 1000 AS "updatedAt"
+  `
+
+  await sql`
+    UPDATE sentinel_users
+    SET organization_id = ${orgId}, role = 'ORG_ADMIN', updated_at = NOW()
+    WHERE id = ${adminUserId}
+  `
+
+  return rows[0] || null
+}
+
 // ─────────────────────────── Subscription Queries ────────────────
 
 /**

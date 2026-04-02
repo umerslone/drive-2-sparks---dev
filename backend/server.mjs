@@ -30,6 +30,7 @@ import {
   updateLastLogin,
   updatePasswordHash,
   assignUserToOrganization,
+  createOrganization,
   getUserSubscription,
   getUserModulePermissions,
   getOrganization,
@@ -1380,6 +1381,51 @@ async function handleCreateOrgMember(req, res, actor) {
   }
 }
 
+async function handleBootstrapOrganization(req, res, actor) {
+  if (!hasMinimumRole(actor.role, "ORG_ADMIN")) {
+    return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+  }
+
+  if (actor.organizationId) {
+    const existingOrg = await getOrganization(actor.organizationId).catch(() => null)
+    return sendJson(res, 200, { ok: true, organization: existingOrg || { id: actor.organizationId } }, req)
+  }
+
+  const parsed = await parseJsonBody(req)
+  if (!parsed.ok) return sendJson(res, parsed.statusCode || 400, { ok: false, error: parsed.error }, req)
+
+  const body = parsed.data
+  const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : `${actor.email}'s Organization`
+  const tier = typeof body.tier === "string" && body.tier.trim() ? body.tier.trim().toUpperCase() : "ENTERPRISE"
+
+  try {
+    const organization = await createOrganization({
+      name,
+      adminUserId: actor.userId,
+      tier,
+    })
+
+    if (!organization) {
+      return sendJson(res, 500, { ok: false, error: "Failed to bootstrap organization" }, req)
+    }
+
+    await writeAuditLog({
+      userId: actor.userId,
+      action: "CREATE",
+      resource: "organization",
+      resourceId: organization.id,
+      metadata: { name, tier },
+      ipAddress: getClientIp(req),
+      success: true,
+    }).catch(() => {})
+
+    return sendJson(res, 201, { ok: true, organization }, req)
+  } catch (err) {
+    console.error("[sentinel/org/bootstrap] error:", err)
+    return sendJson(res, 500, { ok: false, error: "Internal server error" }, req)
+  }
+}
+
 /**
  * POST /api/sentinel/modules/grant
  * Body: { userId, moduleName, accessLevel, organizationId?, expiresAt? }
@@ -2696,6 +2742,11 @@ const server = http.createServer(async (req, res) => {
       // GET /api/sentinel/org/members
       if (method === "GET" && reqPathname === "/api/sentinel/org/members") {
         return handleGetOrgMembers(req, res, user)
+      }
+
+      // POST /api/sentinel/org/bootstrap
+      if (method === "POST" && reqPathname === "/api/sentinel/org/bootstrap") {
+        return handleBootstrapOrganization(req, res, user)
       }
 
       // POST /api/sentinel/org/members

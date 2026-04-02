@@ -66,3 +66,26 @@ export async function createOrganizationMember(payload: {
     return { success: false, error: "Backend unavailable" }
   }
 }
+
+export async function bootstrapOrganization(payload: {
+  name: string
+  tier?: string
+}): Promise<{ success: boolean; organization?: Record<string, unknown>; error?: string }> {
+  try {
+    const res = await fetch(`${getBackendBaseUrl()}/api/sentinel/org/bootstrap`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      credentials: "include",
+      body: JSON.stringify(payload),
+    })
+
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data?.ok) {
+      return { success: false, error: data?.error || "Failed to bootstrap organization" }
+    }
+
+    return { success: true, organization: data.organization }
+  } catch {
+    return { success: false, error: "Backend unavailable" }
+  }
+}
