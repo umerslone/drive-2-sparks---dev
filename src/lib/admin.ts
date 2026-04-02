@@ -29,7 +29,17 @@ export const adminService = {
   async getAllUsers(): Promise<UserProfile[]> {
     try {
       const users = await getSafeKVClient().get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
-      return Object.values(users)
+      const dedupedByEmail = new Map<string, UserProfile>()
+
+      for (const user of Object.values(users)) {
+        const normalizedEmail = user.email.toLowerCase()
+        const existing = dedupedByEmail.get(normalizedEmail)
+        if (!existing || user.lastLoginAt > existing.lastLoginAt || user.createdAt > existing.createdAt) {
+          dedupedByEmail.set(normalizedEmail, user)
+        }
+      }
+
+      return Array.from(dedupedByEmail.values())
     } catch (error) {
       console.error("Failed to get all users:", error)
       return []
@@ -206,7 +216,7 @@ export const adminService = {
       const users = await getSafeKVClient().get<Record<string, UserProfile>>(USERS_STORAGE_KEY) || {}
       const userEntry = Object.entries(users).find(([, candidate]) => candidate.email.toLowerCase() === email.toLowerCase())
       const user = userEntry?.[1]
-      const userId = userEntry?.[0]
+      const userId = user?.id || userEntry?.[0]
 
       if (!user || !userId) {
         return { success: false, error: "User not found" }
