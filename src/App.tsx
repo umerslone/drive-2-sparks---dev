@@ -2808,7 +2808,7 @@ ${JSON.stringify(candidate)}`
             {user.role === "admin" && (
               <TabsContent value="enterprise" className="space-y-6">
                 <Suspense fallback={<LoadingState />}>
-                  <EnterpriseAdmin user={user} organizationId={user.id} />
+                  <EnterpriseAdmin user={user} organizationId={user.subscription?.enterpriseOrganizationId || user.id} />
                 </Suspense>
               </TabsContent>
             )}

@@ -1,6 +1,7 @@
 import { NGOAccessLevel, NGOTeamMember, UserProfile } from "@/types"
 import { ensureUserSubscription, getDefaultSubscription } from "@/lib/subscription"
 import { getPlatformKV } from "@/lib/platform-client"
+import { createOrganizationMember } from "@/lib/org-members"
 
 const USERS_STORAGE_KEY = "platform-users"
 const USER_CREDENTIALS_KEY = "user-credentials"
@@ -55,8 +56,8 @@ export async function addTeamMember(
     if (!email || !password || !fullName) {
       return { success: false, error: "All fields are required" }
     }
-    if (password.length < 6) {
-      return { success: false, error: "Password must be at least 6 characters" }
+    if (password.length < 8) {
+      return { success: false, error: "Password must be at least 8 characters" }
     }
 
     const normalizedEmail = email.toLowerCase().trim()
@@ -112,8 +113,21 @@ export async function addTeamMember(
       }
     }
 
-    // Create new platform user
-    const userId = `ngo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const orgId = safeAdmin.subscription?.enterpriseOrganizationId || safeAdmin.id
+    const backendCreate = await createOrganizationMember({
+      email: normalizedEmail,
+      fullName,
+      password,
+      role: accessLevel === "owner" ? "admin" : accessLevel === "contributor" ? "contributor" : "viewer",
+    })
+
+    if (!backendCreate.success) {
+      return { success: false, error: backendCreate.error || "Failed to create backend team member" }
+    }
+
+    const userId = typeof backendCreate.member?.id === "string"
+      ? backendCreate.member.id
+      : `ngo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     const passwordHash = await simpleHash(password)
 
     const newUser: UserProfile = {
@@ -126,6 +140,7 @@ export async function addTeamMember(
         hasNgoModuleAccess: true,
         ngoAccessLevel: accessLevel,
         ngoTeamAdminId: adminId,
+        enterpriseOrganizationId: orgId,
       },
       createdAt: Date.now(),
       lastLoginAt: Date.now(),

@@ -58,7 +58,7 @@ export async function createOrganizationMember(payload: {
 
     const data = await res.json().catch(() => null)
     if (!res.ok || !data?.ok) {
-      return { success: false, error: data?.error || "Failed to create organization member" }
+      return { success: false, error: data?.error || "Failed to create organization member. Ensure the admin account is linked to a backend organization." }
     }
 
     return { success: true, member: data.member }
