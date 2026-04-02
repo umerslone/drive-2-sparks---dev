@@ -65,6 +65,28 @@ interface StoredCredential {
   userId: string
 }
 
+function getBackendBaseUrl(): string {
+  if (typeof import.meta !== "undefined" && import.meta.env?.VITE_BACKEND_API_BASE_URL) {
+    return import.meta.env.VITE_BACKEND_API_BASE_URL as string
+  }
+  return ""
+}
+
+async function postBackend(path: string, payload: unknown): Promise<{ ok: boolean; status: number; data?: Record<string, unknown> | null }> {
+  try {
+    const res = await fetch(`${getBackendBaseUrl()}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json().catch(() => null)
+    return { ok: res.ok, status: res.status, data }
+  } catch {
+    return { ok: false, status: 0 }
+  }
+}
+
 async function simpleHash(text: string): Promise<string> {
   const encoder = new TextEncoder()
   const salted = `sentinel:${text}:v2`
@@ -286,7 +308,21 @@ export async function addEnterpriseTeamMember(
         return { success: false, error: "Password (min 8 chars) is required for new members" }
       }
 
-      userId = `ent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      const registerResult = await postBackend("/api/auth/register", {
+        email: normalizedEmail,
+        password: password.trim(),
+        fullName,
+      })
+
+      if (!registerResult.ok || !registerResult.data?.user) {
+        return {
+          success: false,
+          error: (registerResult.data?.error as string) || "Failed to create backend account for member",
+        }
+      }
+
+      const backendUser = registerResult.data.user as Partial<UserProfile>
+      userId = typeof backendUser.id === "string" ? backendUser.id : `ent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       const passwordHash = await simpleHash(password.trim())
       const targetPlan = planFromTier(sub.tier)
 
