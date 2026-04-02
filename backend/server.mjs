@@ -793,8 +793,10 @@ async function handleRegister(req, res) {
       sendWelcomeEmail({
         to: newUser.email,
         fullName,
+      }).then(() => {
+        console.log(`[mail/welcome] sent to ${newUser.email}`)
       }).catch((err) => {
-        console.warn("[mail/welcome] send failed:", err.message)
+        console.error("[mail/welcome] send FAILED:", err.message, err.stack)
       })
 
       sendNewUserAdminNotification({
@@ -802,9 +804,13 @@ async function handleRegister(req, res) {
         newUserEmail: newUser.email,
         newUserName: fullName,
         source: "signup",
+      }).then(() => {
+        console.log(`[mail/admin-notify] sent to ${ADMIN_NOTIFICATION_EMAIL} for ${newUser.email}`)
       }).catch((err) => {
-        console.warn("[mail/admin-notify] send failed:", err.message)
+        console.error("[mail/admin-notify] send FAILED:", err.message, err.stack)
       })
+    } else {
+      console.warn("[mail] Graph Mail not configured — skipping welcome email for", newUser.email)
     }
 
     return sendJson(res, 201, {
@@ -1399,8 +1405,10 @@ async function handleCreateOrgMember(req, res, actor) {
         sendWelcomeEmail({
           to: email,
           fullName,
+        }).then(() => {
+          console.log(`[mail/welcome:org-member] sent to ${email}`)
         }).catch((err) => {
-          console.warn("[mail/welcome:org-member] send failed:", err.message)
+          console.error("[mail/welcome:org-member] send FAILED:", err.message, err.stack)
         })
       }
 
@@ -1409,9 +1417,13 @@ async function handleCreateOrgMember(req, res, actor) {
         newUserEmail: email,
         newUserName: fullName,
         source: isNewUser ? "enterprise-member-created" : "enterprise-member-added",
+      }).then(() => {
+        console.log(`[mail/admin-notify:org-member] sent to ${ADMIN_NOTIFICATION_EMAIL} for ${email}`)
       }).catch((err) => {
-        console.warn("[mail/admin-notify:org-member] send failed:", err.message)
+        console.error("[mail/admin-notify:org-member] send FAILED:", err.message, err.stack)
       })
+    } else {
+      console.warn("[mail] Graph Mail not configured — skipping emails for org member", email)
     }
 
     return sendJson(res, 201, { ok: true, member: assignedUser }, req)
@@ -2769,7 +2781,40 @@ const server = http.createServer(async (req, res) => {
           sentinelAuth: SENTINEL_AUTH_ENABLED,
           dbConfigured: isDbConfigured(),
           jwtConfigured: isJwtConfigured(),
+          graphMailConfigured: isGraphMailConfigured(),
+          adminNotificationEmail: ADMIN_NOTIFICATION_EMAIL,
         }, req)
+      }
+
+      // POST /api/sentinel/test-email (admin-only: sends a test email to verify Graph Mail)
+      if (method === "POST" && reqPathname === "/api/sentinel/test-email") {
+        if (!hasMinimumRole(user.role, "SENTINEL_COMMANDER")) {
+          return sendJson(res, 403, { ok: false, error: "Insufficient permissions" }, req)
+        }
+
+        if (!isGraphMailConfigured()) {
+          return sendJson(res, 503, {
+            ok: false,
+            error: "Graph Mail is not configured. Set M365_TENANT_ID, M365_CLIENT_ID, M365_CLIENT_SECRET, and M365_SENDER_EMAIL.",
+          }, req)
+        }
+
+        const parsed = await parseJsonBody(req)
+        const recipientEmail = parsed.ok && typeof parsed.data?.email === "string"
+          ? parsed.data.email.trim()
+          : user.email
+
+        try {
+          await sendWelcomeEmail({
+            to: recipientEmail,
+            fullName: "Test User",
+          })
+          console.log(`[mail/test] Test email sent successfully to ${recipientEmail}`)
+          return sendJson(res, 200, { ok: true, sentTo: recipientEmail }, req)
+        } catch (err) {
+          console.error("[mail/test] Test email failed:", err)
+          return sendJson(res, 500, { ok: false, error: err?.message || "Failed to send test email" }, req)
+        }
       }
 
       // GET /api/sentinel/modules
