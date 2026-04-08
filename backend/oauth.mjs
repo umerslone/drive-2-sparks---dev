@@ -201,7 +201,7 @@ async function processOAuthUser(profile) {
   }
 
   // Get subscription for token
-  const subRows = await sql`SELECT tier FROM sentinel_subscriptions JOIN sentinel_organizations ON sentinel_organizations.subscription_id = sentinel_subscriptions.id WHERE sentinel_organizations.id = ${user.organization_id} LIMIT 1`;
+  const subRows = await sql`SELECT sentinel_subscriptions.tier FROM sentinel_subscriptions JOIN sentinel_organizations ON sentinel_organizations.subscription_id = sentinel_subscriptions.id WHERE sentinel_organizations.id = ${user.organization_id} LIMIT 1`;
   const tier = subRows.length > 0 ? subRows[0].tier : null;
 
   // 3. Generate token using the existing signToken function
