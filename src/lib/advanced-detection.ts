@@ -452,7 +452,7 @@ function getSentenceSpans(text: string): SentenceSpan[] {
 }
 
 function calculateSentenceAIPatternScore(sentence: string): { score: number; indicators: string[] } {
-  const words = sentence.match(/\b\w+\b/gi) || []
+  const words: string[] = sentence.match(/\b\w+\b/gi) || []
   if (words.length === 0) {
     return { score: 0, indicators: [] }
   }
