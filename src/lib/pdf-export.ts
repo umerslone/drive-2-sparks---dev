@@ -445,10 +445,10 @@ export async function exportReviewToPDF(
         <div class="meta-value">${format(review.timestamp, "MMMM d, yyyy 'at' h:mm a")}</div>
       </div>
       <div class="meta-item">
-        <div class="meta-label">Turnitin Status</div>
+        <div class="meta-label">Submission Risk</div>
         <div class="meta-value">
           <span class="turnitin-badge">
-            ${review.plagiarismResult.turnitinReady ? '✓ Ready for Submission' : '✗ Needs Review'}
+            ${review.plagiarismResult.turnitinReady ? '✓ Lower Submission Risk' : '✗ Needs Review'}
           </span>
         </div>
       </div>
@@ -475,7 +475,7 @@ export async function exportReviewToPDF(
       </div>
     </div>
     <div class="score-card">
-      <div class="score-label">Likely Turnitin Range</div>
+      <div class="score-label">Estimated Similarity Range</div>
       <div class="score-value warning">
         ${meta.likelyTurnitinRange.min}% - ${meta.likelyTurnitinRange.max}%
       </div>
@@ -487,9 +487,38 @@ export async function exportReviewToPDF(
     <h2 class="section-title">Scoring Context</h2>
     <div class="section-content">
       ${meta.confidenceReasons.map((reason) => `<div>- ${escapeHtml(reason)}</div>`).join("")}
+      <div style="margin-top: 10px;"><strong>Scoring profile:</strong> ${escapeHtml(meta.scoringProfile)} (${escapeHtml(meta.profileVersion)})</div>
       ${filters ? `<div style="margin-top: 10px;"><strong>Active filters:</strong> quotes=${filters.excludeQuotes ? "excluded" : "included"}, references=${filters.excludeReferences ? "excluded" : "included"}, minMatchWords=${filters.minMatchWords}</div>` : ""}
     </div>
   </div>
+
+  ${meta.evidenceItems.length > 0 ? `
+  <div class="section">
+    <h2 class="section-title">Evidence Ledger</h2>
+    <div class="section-content">
+      ${meta.evidenceItems.map((item) => `
+        <div style="background: ${brand.colors.panel}; border-left: 3px solid ${item.impact === "positive" ? "#22c55e" : item.impact === "neutral" ? brand.colors.accent : "#ef4444"}; padding: 12px 15px; margin-bottom: 10px; border-radius: 4px;">
+          <strong>${escapeHtml(item.label)}</strong> <span style="font-size: 12px; color: ${brand.colors.muted}; text-transform: uppercase;">${escapeHtml(item.impact)}</span><br>
+          <span>${escapeHtml(item.detail)}</span>
+        </div>
+      `).join("")}
+    </div>
+  </div>
+  ` : ""}
+
+  ${meta.provenance.length > 0 ? `
+  <div class="section">
+    <h2 class="section-title">Evidence Provenance</h2>
+    <div class="section-content">
+      ${meta.provenance.map((item) => `
+        <div style="background: #fff; border: 1px solid ${brand.colors.border}; padding: 12px 15px; margin-bottom: 10px; border-radius: 4px;">
+          <strong>${escapeHtml(item.label)}</strong> <span style="font-size: 12px; color: ${brand.colors.muted}; text-transform: uppercase;">${escapeHtml(item.status)}</span><br>
+          <span>${escapeHtml(item.detail)}</span>
+        </div>
+      `).join("")}
+    </div>
+  </div>
+  ` : ""}
 
 
 

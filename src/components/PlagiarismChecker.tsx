@@ -53,6 +53,8 @@ type HumanizerWorkspaceEntry = {
   sourceName: string
   originalText: string
   humanizedText: string
+  candidates?: HumanizerCandidateReview[]
+  selectedCandidateId?: string | null
   wordCount: number
   creditsUsed: number
   timestamp: number
@@ -72,6 +74,8 @@ type HumanizerDraft = {
   sourceText: string
   settings: HumanizerBehaviorSettings
   lastOutput: string
+  candidates?: HumanizerCandidateReview[]
+  selectedCandidateId?: string | null
   aiScoreBefore: number
   aiScoreAfter: number
   similarityBefore: number
@@ -79,6 +83,8 @@ type HumanizerDraft = {
   updatedAt: number
   isFinal: boolean
 }
+
+type ReviewScoringProfile = "institutional" | "strict" | "balanced"
 
 type HumanizerCandidatePayload = {
   humanizedText: string
@@ -167,6 +173,7 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
     excludeReferences: true,
     minMatchWords: 8,
   })
+  const [reviewScoringProfile, setReviewScoringProfile] = useState<ReviewScoringProfile>("institutional")
   const [advancedMetrics, setAdvancedMetrics] = useState<AdvancedDetectionResult | null>(null)
   // subscriptionPlan is read-only here; derived from user.subscription at mount time
   const [subscriptionPlan] = useState<SubscriptionPlan>(user.subscription?.plan || "basic")
@@ -209,9 +216,14 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
     },
   })
   const exportPlanConfig = getExportPlanConfig(entitlements.isPaidPlan ? subscriptionPlan : "basic")
+  const derivedReviewFilters: Record<ReviewScoringProfile, ReviewFilters> = {
+    institutional: { excludeQuotes: true, excludeReferences: true, minMatchWords: 8 },
+    strict: { excludeQuotes: false, excludeReferences: false, minMatchWords: 4 },
+    balanced: { excludeQuotes: true, excludeReferences: false, minMatchWords: 6 },
+  }
   const activeReviewFilters = entitlements.isPaidPlan
     ? reviewFilters
-    : { excludeQuotes: true, excludeReferences: true, minMatchWords: 8 }
+    : derivedReviewFilters[reviewScoringProfile]
   const normalizedFingerprintRegistry = Array.isArray(documentFingerprintRegistry) ? documentFingerprintRegistry : []
   const reuploadHistory = [...normalizedFingerprintRegistry].sort((left, right) => right.lastReviewedAt - left.lastReviewedAt)
   const totalFingerprintReviews = reuploadHistory.reduce((sum, entry) => sum + entry.reviewCount, 0)
@@ -237,6 +249,11 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
       return 0
     }
     return Math.max(1, Math.ceil(wordCount / 1000))
+  }
+
+  const applyReviewScoringProfile = (profile: ReviewScoringProfile) => {
+    setReviewScoringProfile(profile)
+    setReviewFilters(derivedReviewFilters[profile])
   }
 
   const resetUploadInput = () => {
@@ -267,6 +284,8 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
     }
 
     if (humanizerDraft.lastOutput) {
+      setHumanizerCandidates(humanizerDraft.candidates || [])
+      setSelectedHumanizerCandidateId(humanizerDraft.selectedCandidateId || null)
       setHumanizedResult({
         originalText: humanizerDraft.sourceText,
         humanizedText: humanizerDraft.lastOutput,
@@ -302,6 +321,8 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
       sourceText,
       settings: humanizerSettings,
       lastOutput: humanizedResult?.humanizedText || current?.lastOutput || "",
+      candidates: humanizerCandidates.length > 0 ? humanizerCandidates : current?.candidates || [],
+      selectedCandidateId: selectedHumanizerCandidateId || current?.selectedCandidateId || null,
       aiScoreBefore: beforeMeters.aiLikelihood,
       aiScoreAfter: afterMeters?.aiLikelihood || current?.aiScoreAfter || 0,
       similarityBefore: beforeMeters.similarityRisk,
@@ -313,7 +334,9 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
     mode,
     text,
     humanizedResult,
+    humanizerCandidates,
     humanizerSettings,
+    selectedHumanizerCandidateId,
     setHumanizerDraft,
     userId,
   ])
@@ -1117,8 +1140,9 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
 
     try {
       const enriched = computeReviewAnalysis(review.documentText, review.plagiarismResult, activeReviewFilters)
+      const scoredMeta = await scoreReviewMetaOnServer(review.documentText, enriched.result, activeReviewFilters)
       await exportReviewToPDF(review, {
-        meta: enriched.meta,
+        meta: scoredMeta || enriched.meta,
         sections: enriched.sections,
         filters: activeReviewFilters,
       })
@@ -1147,6 +1171,7 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
         currentReviewResult.plagiarismResult,
         activeReviewFilters
       )
+      const scoredMeta = await scoreReviewMetaOnServer(currentReviewResult.documentText, enriched.result, activeReviewFilters)
       
       const reviewForExport: SavedReviewDocument = {
         id: Date.now().toString(),
@@ -1161,7 +1186,7 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
       }
 
       await exportReviewToPDF(reviewForExport, {
-        meta: enriched.meta,
+        meta: scoredMeta || enriched.meta,
         sections: enriched.sections,
         filters: activeReviewFilters,
       })
@@ -1485,6 +1510,8 @@ Return ONLY a valid JSON object:
       sourceName,
       originalText: humanizedResult.originalText,
       humanizedText: humanizedResult.humanizedText,
+      candidates: humanizerCandidates,
+      selectedCandidateId: selectedHumanizerCandidateId,
       wordCount: countWords(humanizedResult.originalText),
       creditsUsed: estimateHumanizerCredits(countWords(humanizedResult.originalText)),
       timestamp: Date.now(),
@@ -1496,8 +1523,8 @@ Return ONLY a valid JSON object:
 
   const loadHumanizerWorkspaceEntry = (entry: HumanizerWorkspaceEntry) => {
     setText(entry.originalText)
-    setHumanizerCandidates([])
-    setSelectedHumanizerCandidateId(null)
+    setHumanizerCandidates(entry.candidates || [])
+    setSelectedHumanizerCandidateId(entry.selectedCandidateId || null)
     setHumanizedResult({
       originalText: entry.originalText,
       humanizedText: entry.humanizedText,
@@ -1577,6 +1604,8 @@ Return ONLY a valid JSON object:
 
     setText(humanizerDraft.sourceText || "")
     setHumanizerSettings(humanizerDraft.settings || DEFAULT_HUMANIZER_SETTINGS)
+    setHumanizerCandidates(humanizerDraft.candidates || [])
+    setSelectedHumanizerCandidateId(humanizerDraft.selectedCandidateId || null)
     setHumanizerScores({
       aiScoreBefore: humanizerDraft.aiScoreBefore,
       aiScoreAfter: humanizerDraft.aiScoreAfter || null,
@@ -1978,9 +2007,35 @@ Return ONLY a valid JSON object:
               <p className="text-xs text-muted-foreground">
                 These controls emulate institution-style similarity exclusions and affect displayed similarity and integrity estimates.
               </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => applyReviewScoringProfile("institutional")}
+                  className={`rounded-lg border px-3 py-2 text-left ${reviewScoringProfile === "institutional" ? "border-primary bg-primary/5" : "border-border bg-background"}`}
+                >
+                  <p className="text-sm font-medium">Institutional</p>
+                  <p className="text-xs text-muted-foreground">Quotes and references excluded, safer academic baseline.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyReviewScoringProfile("balanced")}
+                  className={`rounded-lg border px-3 py-2 text-left ${reviewScoringProfile === "balanced" ? "border-primary bg-primary/5" : "border-border bg-background"}`}
+                >
+                  <p className="text-sm font-medium">Balanced</p>
+                  <p className="text-xs text-muted-foreground">Keeps references in play with moderate match sensitivity.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyReviewScoringProfile("strict")}
+                  className={`rounded-lg border px-3 py-2 text-left ${reviewScoringProfile === "strict" ? "border-primary bg-primary/5" : "border-border bg-background"}`}
+                >
+                  <p className="text-sm font-medium">Strict</p>
+                  <p className="text-xs text-muted-foreground">Minimal exclusions, closer to worst-case screening.</p>
+                </button>
+              </div>
               {!entitlements.isPaidPlan && user.role !== "admin" && (
                 <p className="text-xs text-primary">
-                  Advanced filter customization is available on Pro/Team. Basic uses safe defaults (quotes/references excluded, min match words = 8).
+                  Advanced filter customization is available on Pro/Team. Basic uses the selected preset profile only.
                 </p>
               )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -2777,8 +2832,12 @@ Return ONLY a valid JSON object:
                           <p className="text-sm font-semibold text-foreground truncate">{entry.label}</p>
                           <Badge variant="outline">{entry.wordCount} words</Badge>
                           <Badge variant="secondary">{entry.creditsUsed} credit(s)</Badge>
+                          {entry.candidates && entry.candidates.length > 0 && <Badge variant="outline">{entry.candidates.length} candidates</Badge>}
                         </div>
                         <p className="text-xs text-muted-foreground">Source: {entry.sourceName}</p>
+                        {entry.selectedCandidateId && (
+                          <p className="text-xs text-muted-foreground">Selected candidate: {entry.selectedCandidateId}</p>
+                        )}
                         <p className="text-sm text-muted-foreground line-clamp-2">{entry.humanizedText}</p>
                         <p className="text-xs text-muted-foreground">Saved: {new Date(entry.timestamp).toLocaleString()}</p>
                       </div>
