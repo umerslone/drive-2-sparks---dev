@@ -92,6 +92,20 @@ type HumanizerCandidatePayload = {
   strategy: string | undefined
 }
 
+type EvidenceMeter = {
+  label: string
+  value: number
+  tone: "positive" | "neutral" | "risk"
+}
+
+type SourceVerificationSummary = {
+  totalMatches: number
+  verifiedProviders: number
+  retentionAwareProviders: number
+  liveProviders: number
+  highestSimilarity: number
+}
+
 const DEFAULT_HUMANIZER_SETTINGS: HumanizerBehaviorSettings = {
   tone: "neutral",
   formality: "balanced",
@@ -227,6 +241,8 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
   const normalizedFingerprintRegistry = Array.isArray(documentFingerprintRegistry) ? documentFingerprintRegistry : []
   const reuploadHistory = [...normalizedFingerprintRegistry].sort((left, right) => right.lastReviewedAt - left.lastReviewedAt)
   const totalFingerprintReviews = reuploadHistory.reduce((sum, entry) => sum + entry.reviewCount, 0)
+  const evidenceMeters = result ? buildEvidenceMeters(result, reviewMeta) : []
+  const sourceVerificationSummary = buildSourceVerificationSummary(externalSourceCheck)
 
   const countWords = (input: string) => {
     const normalized = input.trim()
@@ -254,6 +270,66 @@ function PlagiarismCheckerInner({ user, mode }: { user: UserProfile; mode: "revi
   const applyReviewScoringProfile = (profile: ReviewScoringProfile) => {
     setReviewScoringProfile(profile)
     setReviewFilters(derivedReviewFilters[profile])
+  }
+
+  function buildEvidenceMeters(review: PlagiarismResult, meta: ReviewComputationMeta | null): EvidenceMeter[] {
+    const citationValidCount = review.validReferences.filter((ref) => ref.isValid).length
+    const citationCoverage = review.validReferences.length > 0
+      ? Math.round((citationValidCount / review.validReferences.length) * 100)
+      : 0
+
+    return [
+      {
+        label: "Integrity",
+        value: meta?.integrityScore ?? review.overallScore,
+        tone: (meta?.integrityScore ?? review.overallScore) >= 75 ? "positive" : (meta?.integrityScore ?? review.overallScore) >= 55 ? "neutral" : "risk",
+      },
+      {
+        label: "Similarity risk",
+        value: Math.max(0, 100 - review.plagiarismPercentage),
+        tone: review.plagiarismPercentage <= 20 ? "positive" : review.plagiarismPercentage <= 40 ? "neutral" : "risk",
+      },
+      {
+        label: "AI-pattern risk",
+        value: Math.max(0, 100 - review.aiContentPercentage),
+        tone: review.aiContentPercentage <= 20 ? "positive" : review.aiContentPercentage <= 40 ? "neutral" : "risk",
+      },
+      {
+        label: "Citation support",
+        value: citationCoverage,
+        tone: citationCoverage >= 75 ? "positive" : citationCoverage >= 45 ? "neutral" : "risk",
+      },
+    ]
+  }
+
+  function buildSourceVerificationSummary(sourceCheck: ExternalSourceCheckResult | null): SourceVerificationSummary | null {
+    if (!sourceCheck) {
+      return null
+    }
+
+    const checks = sourceCheck.providerChecks || []
+    return {
+      totalMatches: sourceCheck.matches.length,
+      verifiedProviders: checks.filter((check) => check.status === "completed").length,
+      retentionAwareProviders: checks.filter((check) => check.canVerifyRetention).length,
+      liveProviders: checks.filter((check) => check.canPerformLiveCheck).length,
+      highestSimilarity: sourceCheck.matches.reduce((max, match) => Math.max(max, match.similarity), 0),
+    }
+  }
+
+  function getEvidenceToneClasses(tone: EvidenceMeter["tone"]) {
+    if (tone === "positive") return "bg-green-500"
+    if (tone === "neutral") return "bg-amber-500"
+    return "bg-red-500"
+  }
+
+  function getDiffPreview(original: string, humanized: string) {
+    const before = original.trim().replace(/\s+/g, " ")
+    const after = humanized.trim().replace(/\s+/g, " ")
+    return {
+      before: before.length > 180 ? `${before.slice(0, 177)}...` : before,
+      after: after.length > 180 ? `${after.slice(0, 177)}...` : after,
+    }
   }
 
   const resetUploadInput = () => {
@@ -2417,6 +2493,25 @@ Return ONLY a valid JSON object:
                   <TabsContent value="evidence" className="space-y-3">
                     {reviewMeta && (
                       <div className="space-y-3">
+                        {evidenceMeters.length > 0 && (
+                          <div className="p-3 border border-border rounded-lg bg-background/80 space-y-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Evidence Signal Chart</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {evidenceMeters.map((meter) => (
+                                <div key={meter.label} className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-foreground font-medium">{meter.label}</span>
+                                    <span className="text-muted-foreground">{meter.value}%</span>
+                                  </div>
+                                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                                    <div className={`h-full ${getEvidenceToneClasses(meter.tone)}`} style={{ width: `${meter.value}%` }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div className="p-3 border border-border rounded-lg bg-muted/30 space-y-2">
                             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scoring Profile</p>
@@ -2456,6 +2551,33 @@ Return ONLY a valid JSON object:
                             </p>
                           ))}
                         </div>
+
+                        {sourceVerificationSummary && (
+                          <div className="p-3 border border-border rounded-lg bg-muted/20 space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Source Verification</p>
+                              <Badge variant={sourceVerificationSummary.totalMatches > 0 ? "secondary" : "outline"}>{sourceVerificationSummary.totalMatches} matches</Badge>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                              <div className="rounded border border-border p-2">
+                                <p className="text-muted-foreground">Completed paths</p>
+                                <p className="font-semibold text-foreground">{sourceVerificationSummary.verifiedProviders}</p>
+                              </div>
+                              <div className="rounded border border-border p-2">
+                                <p className="text-muted-foreground">Live-check paths</p>
+                                <p className="font-semibold text-foreground">{sourceVerificationSummary.liveProviders}</p>
+                              </div>
+                              <div className="rounded border border-border p-2">
+                                <p className="text-muted-foreground">Retention-aware</p>
+                                <p className="font-semibold text-foreground">{sourceVerificationSummary.retentionAwareProviders}</p>
+                              </div>
+                              <div className="rounded border border-border p-2">
+                                <p className="text-muted-foreground">Highest similarity</p>
+                                <p className="font-semibold text-foreground">{sourceVerificationSummary.highestSimilarity}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </TabsContent>
@@ -2568,6 +2690,20 @@ Return ONLY a valid JSON object:
                 {externalSourceCheck && externalSourceCheck.matches.length > 0 && (
                   <div className="pt-4 border-t">
                     <h4 className="text-sm font-semibold mb-3">External Repository Matches</h4>
+                    {externalSourceCheck.providerChecks.length > 0 && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                        {externalSourceCheck.providerChecks.map((check) => (
+                          <div key={check.provider} className="p-3 border border-border rounded-lg bg-muted/20 space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium text-foreground capitalize">{check.provider}</p>
+                              <Badge variant={check.status === "completed" ? "default" : check.status === "error" ? "destructive" : "outline"}>{check.status}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{check.summary}</p>
+                            <p className="text-[11px] text-muted-foreground">Live check: {check.canPerformLiveCheck ? "yes" : "no"} • Retention: {check.canVerifyRetention ? "verifiable" : "unknown"}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {externalSourceCheck.matches.map((match, index) => (
                         <div key={`${match.source}-${index}`} className="p-3 border border-border rounded-lg bg-muted/20 space-y-1">
@@ -2671,6 +2807,29 @@ Return ONLY a valid JSON object:
                     className="min-h-64 resize-none"
                   />
                 </div>
+                {humanizedResult.changes.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium block">Rewrite Diffs</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {humanizedResult.changes.slice(0, 4).map((change, index) => {
+                        const preview = getDiffPreview(change.original, change.humanized)
+                        return (
+                          <div key={`${change.original}-${index}`} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rewrite {index + 1}</p>
+                            <div className="rounded border border-red-200 bg-red-50/60 p-2">
+                              <p className="text-[11px] uppercase tracking-wide text-red-600 mb-1">Before</p>
+                              <p className="text-sm text-foreground">{preview.before}</p>
+                            </div>
+                            <div className="rounded border border-green-200 bg-green-50/60 p-2">
+                              <p className="text-[11px] uppercase tracking-wide text-green-700 mb-1">After</p>
+                              <p className="text-sm text-foreground">{preview.after}</p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 {humanizedResult.changes.length > 0 && (
                   <div>
                     <label className="text-sm font-medium mb-2 block">Key Changes</label>
