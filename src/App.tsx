@@ -126,19 +126,24 @@ const loadPersistedUIState = (): PersistedUIState => {
 }
 
 function App() {
+  const defaultPostProcessSettings: PostProcessSettings = {
+    humanizeOnOutput: true,
+    preserveFactsStrictly: false,
+    matchMyVoice: false,
+    postProcessProfile: "balanced",
+    voiceSample: "",
+  }
+
   const [user, setUser] = useState<UserProfile | null>(null)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [userIdForKV, setUserIdForKV] = useState<string>("temp")
   const [description, setDescription] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [loadingProgress, setLoadingProgress] = useState(0)
-  const [postProcessSettings, setPostProcessSettings] = useState<PostProcessSettings>({
-    humanizeOnOutput: true,
-    preserveFactsStrictly: false,
-    matchMyVoice: false,
-    postProcessProfile: "balanced",
-    voiceSample: "",
-  })
+  const [postProcessSettings, setPostProcessSettings] = useSafeKV<PostProcessSettings>(
+    `post-process-settings-${userIdForKV}`,
+    defaultPostProcessSettings
+  )
   const [result, setResult] = useState<MarketingResult | null>(null)
   const [currentDescription, setCurrentDescription] = useState("")
   const [error, setError] = useState<string | null>(null)
