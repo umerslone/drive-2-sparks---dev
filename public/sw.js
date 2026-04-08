@@ -42,67 +42,8 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-// ── Fetch: routing strategy ───────────────────────────────────────────────────
-self.addEventListener('fetch', (event) => {
-  const { request } = event
-  const url = new URL(request.url)
-
-  // 1. Non-GET requests — always go to network (POST/PUT/DELETE, etc.)
-  if (request.method !== 'GET') return
-
-  // 2. API calls — network-only, never serve stale data
-  if (url.pathname.startsWith('/api/')) return
-
-  // 3. Cross-origin requests (fonts, CDN) — network-first, cache fallback
-  if (url.origin !== self.location.origin) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone))
-          }
-          return response
-        })
-        .catch(() => caches.match(request))
-    )
-    return
-  }
-
-  // 4. Same-origin static assets (JS, CSS, images, fonts) — cache-first
-  if (
-    url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|gif|webp|woff2?|ttf|ico)$/)
-  ) {
-    event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached
-        return fetch(request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone))
-          }
-          return response
-        })
-      })
-    )
-    return
-  }
-
-  // 5. HTML navigation — network-first, fall back to cached '/' (app shell)
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone))
-          }
-          return response
-        })
-        .catch(() =>
-          caches.match(request).then((cached) => cached || caches.match('/'))
-        )
-    )
-    return
-  }
-})
+// Runtime interception is intentionally disabled.
+// Reason: strict CSP on production blocks service worker network fetches,
+// which can break navigation if respondWith() receives a rejected promise.
+// We keep installability and cache lifecycle, but let the browser network
+// stack handle all requests directly for maximum reliability.
