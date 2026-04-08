@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
+import { PostProcessControls, type PostProcessSettings } from "@/components/PostProcessControls"
 import {
   HandHeart,
   Target,
@@ -699,6 +700,13 @@ export function NGOModule({ userId, user }: NGOModuleProps) {
   const [reportBody, setReportBody] = useState("")
   const [reportGenerating, setReportGenerating] = useState(false)
   const [savedReports, setSavedReports] = useState<{ id: string; title: string; body: string; createdAt: number; status?: "draft" | "signed" | "approved"; generatedBy?: string }[]>([])
+  const [postProcessSettings, setPostProcessSettings] = useState<PostProcessSettings>({
+    humanizeOnOutput: true,
+    preserveFactsStrictly: true,
+    matchMyVoice: false,
+    postProcessProfile: "strict",
+    voiceSample: "",
+  })
   const [reportsLoaded, setReportsLoaded] = useState(false)
 
   // Org settings state
@@ -1079,8 +1087,15 @@ Respond ONLY with valid JSON:
 }`
 
     try {
+      const ngoContentType = activeAction === "email" ? "email-template" : "ngo-report"
       const improved = await sentinelQuery(improvePrompt, {
         module: "ngo_module",
+        contentType: ngoContentType,
+        humanizeOnOutput: postProcessSettings.humanizeOnOutput,
+        preserveFactsStrictly: postProcessSettings.preserveFactsStrictly,
+        matchMyVoice: postProcessSettings.matchMyVoice,
+        voiceSample: postProcessSettings.voiceSample,
+        postProcessProfile: postProcessSettings.postProcessProfile,
         userId: typeof user?.id === "number" ? user.id : undefined,
         skipCache: true,
         useConsensus: false,
@@ -1139,9 +1154,16 @@ Respond ONLY with valid JSON:
         policy = `\n\nMANDATORY GENERATION POLICY:\n- Keep output clear, actionable, and culturally tuned to the context of Pakistan & AJK.`
       }
       prompt += policy
+      const ngoContentType = activeAction === "email" ? "email-template" : "ngo-report"
 
       const res = await sentinelQuery(prompt, {
         module: "ngo_module",
+        contentType: ngoContentType,
+        humanizeOnOutput: postProcessSettings.humanizeOnOutput,
+        preserveFactsStrictly: postProcessSettings.preserveFactsStrictly,
+        matchMyVoice: postProcessSettings.matchMyVoice,
+        voiceSample: postProcessSettings.voiceSample,
+        postProcessProfile: postProcessSettings.postProcessProfile,
         userId: typeof user.id === "number" ? user.id : undefined,
         userInputForQualityGate: input,
         qualityGateProfile: currentQualityGateProfile,
@@ -1306,8 +1328,15 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
     try {
       const creditResult = await consumeReviewCredit(user.id)
       if (!creditResult.success) { toast.error(creditResult.error ?? "No credits remaining."); return }
+      const reportContentType = activeAction === "email" ? "email-template" : "ngo-report"
       const res = await sentinelQuery(prompt, {
         module: "ngo_module",
+        contentType: reportContentType,
+        humanizeOnOutput: postProcessSettings.humanizeOnOutput,
+        preserveFactsStrictly: postProcessSettings.preserveFactsStrictly,
+        matchMyVoice: postProcessSettings.matchMyVoice,
+        voiceSample: postProcessSettings.voiceSample,
+        postProcessProfile: postProcessSettings.postProcessProfile,
         userId: typeof user.id === "number" ? user.id : undefined,
         userInputForQualityGate: `${reportTitle} ${input}`,
         qualityGateProfile: currentQualityGateProfile,
@@ -1746,6 +1775,14 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
                   <div>
                     <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{currentAction.inputLabel}</label>
                     <Textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={currentAction.placeholder} className="min-h-[180px] text-sm resize-y font-mono" disabled={isLoading} />
+
+                    <div className="mt-3">
+                      <PostProcessControls
+                        settings={postProcessSettings}
+                        onChange={setPostProcessSettings}
+                        title="NGO Output Controls"
+                      />
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1.5">{input.length} chars · Minimum 30 characters required</p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -2047,6 +2084,14 @@ Structure: Executive Summary, Key Achievements, Challenges & Lessons, Recommenda
               <Button onClick={handleGenerateReport} disabled={reportGenerating || !reportTitle.trim() || !user} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
                 {reportGenerating ? <><ArrowClockwise size={16} weight="bold" className="animate-spin" />Generating Report…</> : <><Sparkle size={16} weight="fill" />Generate Report</>}
               </Button>
+
+              <div className="mt-3">
+                <PostProcessControls
+                  settings={postProcessSettings}
+                  onChange={setPostProcessSettings}
+                  title="Report Output Controls"
+                />
+              </div>
             </CardContent>
           </Card>
           {reportBody && (

@@ -96,6 +96,7 @@ export async function sentinelQuery(
     matchMyVoice?: boolean
     voiceSample?: string
     postProcessProfile?: "strict" | "balanced" | "creative"
+    contentType?: "strategy" | "chat" | "email-template" | "ngo-report" | "general"
   }
 ): Promise<PipelineResult> {
   const providers: QueryProvider[] = []
@@ -161,6 +162,7 @@ export async function sentinelQuery(
   ): Promise<PipelineResult> => {
     const postProcess = applyUniversalPostProcessor(result.response, {
       moduleName,
+      contentType: options?.contentType,
       humanizeOnOutput: options?.humanizeOnOutput,
       preserveFactsStrictly: options?.preserveFactsStrictly,
       matchMyVoice: options?.matchMyVoice,
@@ -757,6 +759,7 @@ function applyUniversalPostProcessor(
   input: string,
   opts: {
     moduleName: string
+    contentType?: "strategy" | "chat" | "email-template" | "ngo-report" | "general"
     humanizeOnOutput?: boolean
     preserveFactsStrictly?: boolean
     matchMyVoice?: boolean
@@ -768,7 +771,7 @@ function applyUniversalPostProcessor(
   output: string
   meta: PipelineResult["postProcess"]
 } {
-  const contentType = inferContentType(opts.moduleName)
+  const contentType = opts.contentType || inferContentType(opts.moduleName)
   const profile = opts.postProcessProfile || defaultProfileForContentType(contentType)
   const enabled = opts.humanizeOnOutput ?? true
   const preserveFactsStrictly =

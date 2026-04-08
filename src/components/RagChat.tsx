@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { PostProcessControls, type PostProcessSettings } from "@/components/PostProcessControls"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Plus, ChatsCircle, User, Robot, ClockCounterClockwise, LinkSimple, X, Lightning, Bell, Question, UserCircle, Gift, Trash, PencilSimple, ArrowUp, ArrowDown } from "@phosphor-icons/react"
 import {
@@ -42,6 +43,13 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
   const [isLoadingThreads, setIsLoadingThreads] = useState(true)
   const [isCreatingThread, setIsCreatingThread] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [postProcessSettings, setPostProcessSettings] = useState<PostProcessSettings>({
+    humanizeOnOutput: true,
+    preserveFactsStrictly: false,
+    matchMyVoice: false,
+    postProcessProfile: "creative",
+    voiceSample: "",
+  })
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const chatScrollRef = useRef<HTMLDivElement | null>(null)
@@ -208,6 +216,12 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
 
       const result = await sentinelQuery(text, {
         module: "rag_chat",
+        contentType: "chat",
+        humanizeOnOutput: postProcessSettings.humanizeOnOutput,
+        preserveFactsStrictly: postProcessSettings.preserveFactsStrictly,
+        matchMyVoice: postProcessSettings.matchMyVoice,
+        voiceSample: postProcessSettings.voiceSample,
+        postProcessProfile: postProcessSettings.postProcessProfile,
         userId: dbUserId,
         threadId,
         persistConversation: true,
@@ -570,6 +584,14 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
             </h1>
             
             <div className="w-full relative mb-10 rounded-2xl border border-border/60 bg-background shadow-sm overflow-hidden">
+              <div className="p-3 border-b border-border/60">
+                <PostProcessControls
+                  settings={postProcessSettings}
+                  onChange={setPostProcessSettings}
+                  compact
+                  title="Chat Output Controls"
+                />
+              </div>
               <Textarea
                 placeholder="How can I help you today?"
                 value={input}
@@ -729,6 +751,14 @@ export function RagChat({ userId, isAdmin = false }: RagChatProps) {
                   ))}
                 </div>
                 <div className="relative shadow-sm rounded-xl">
+                  <div className="mb-3">
+                    <PostProcessControls
+                      settings={postProcessSettings}
+                      onChange={setPostProcessSettings}
+                      compact
+                      title="Chat Output Controls"
+                    />
+                  </div>
                   <Textarea
                     ref={composerRef}
                     placeholder="Type your message..."

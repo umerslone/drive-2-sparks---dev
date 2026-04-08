@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal, LockSimple, Lightning, Brain } from "@phosphor-icons/react"
 import { UpgradePaywall } from "@/components/UpgradePaywall"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { PostProcessControls, type PostProcessSettings } from "@/components/PostProcessControls"
 import { ResultCard } from "@/components/ResultCard"
 import { LoadingState } from "@/components/LoadingState"
 import { EmptyState } from "@/components/EmptyState"
@@ -131,6 +132,13 @@ function App() {
   const [description, setDescription] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [loadingProgress, setLoadingProgress] = useState(0)
+  const [postProcessSettings, setPostProcessSettings] = useState<PostProcessSettings>({
+    humanizeOnOutput: true,
+    preserveFactsStrictly: false,
+    matchMyVoice: false,
+    postProcessProfile: "balanced",
+    voiceSample: "",
+  })
   const [result, setResult] = useState<MarketingResult | null>(null)
   const [currentDescription, setCurrentDescription] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -474,6 +482,12 @@ function App() {
       try {
         const pipelineResult = await sentinelQuery(prompt, {
           module: "strategy",
+          contentType: "strategy",
+          humanizeOnOutput: postProcessSettings.humanizeOnOutput,
+          preserveFactsStrictly: postProcessSettings.preserveFactsStrictly,
+          matchMyVoice: postProcessSettings.matchMyVoice,
+          voiceSample: postProcessSettings.voiceSample,
+          postProcessProfile: postProcessSettings.postProcessProfile,
           useConsensus: true,
           sparkFallback: async () => {
             if (typeof spark !== "undefined" && typeof spark.llm === "function") {
@@ -1726,6 +1740,14 @@ ${JSON.stringify(candidate)}`
                       </div>
                     </div>
                   )}
+                </div>
+
+                <div className="mb-4">
+                  <PostProcessControls
+                    settings={postProcessSettings}
+                    onChange={setPostProcessSettings}
+                    title="Strategy Output Controls"
+                  />
                 </div>
 
                 <div className="mb-4">

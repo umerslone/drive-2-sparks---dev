@@ -18,6 +18,7 @@ import { BusinessCanvasView } from "@/components/BusinessCanvasView"
 import { PitchDeckView } from "@/components/PitchDeckView"
 import { SaveIdeaDialog } from "@/components/SaveIdeaDialog"
 import { SavedIdeasList } from "@/components/SavedIdeasList"
+import { PostProcessControls, type PostProcessSettings } from "@/components/PostProcessControls"
 import { useSafeKV } from "@/hooks/useSafeKV"
 import { toast } from "sonner"
 import { getFeatureEntitlements } from "@/lib/subscription"
@@ -36,6 +37,13 @@ export function IdeaGeneration({ userId, user }: IdeaGenerationProps) {
   const [isLoadingIdea, setIsLoadingIdea] = useState(false)
   const [isLoadingCanvas, setIsLoadingCanvas] = useState(false)
   const [isLoadingPitch, setIsLoadingPitch] = useState(false)
+  const [postProcessSettings, setPostProcessSettings] = useState<PostProcessSettings>({
+    humanizeOnOutput: true,
+    preserveFactsStrictly: false,
+    matchMyVoice: false,
+    postProcessProfile: "balanced",
+    voiceSample: "",
+  })
   const [cookedIdea, setCookedIdea] = useState<CookedIdea | null>(null)
   const [businessCanvas, setBusinessCanvas] = useState<BusinessCanvasModel | null>(null)
   const [pitchDeck, setPitchDeck] = useState<PitchDeck | null>(null)
@@ -279,6 +287,12 @@ CRITICAL: Return ONLY valid JSON with no markdown, no code blocks, no explanator
         try {
           const res = await sentinelQuery(strPrompt, {
             module: "idea-generation",
+            contentType: "strategy",
+            humanizeOnOutput: postProcessSettings.humanizeOnOutput,
+            preserveFactsStrictly: postProcessSettings.preserveFactsStrictly,
+            matchMyVoice: postProcessSettings.matchMyVoice,
+            voiceSample: postProcessSettings.voiceSample,
+            postProcessProfile: postProcessSettings.postProcessProfile,
             userId: user?.id ? parseInt(user.id) || undefined : undefined,
             enableQualityGate: true,
             userInputForQualityGate: ideaInput,
@@ -658,6 +672,14 @@ CRITICAL: Return ONLY valid JSON with no markdown.`
               className="min-h-32 resize-none text-base leading-relaxed focus:ring-2 focus:ring-accent transition-all mb-4"
               maxLength={1000}
             />
+
+            <div className="mb-4">
+              <PostProcessControls
+                settings={postProcessSettings}
+                onChange={setPostProcessSettings}
+                title="Idea Output Controls"
+              />
+            </div>
 
             <div className="flex items-center justify-between gap-4">
               <div className="text-sm text-muted-foreground">
