@@ -114,6 +114,7 @@ async function backendFetch<T>(
       ...options,
       headers,
       credentials: "include", // M1: Send cookies cross-origin for CSRF
+      signal: AbortSignal.timeout(3000),
     })
 
     const data = await res.json() as T

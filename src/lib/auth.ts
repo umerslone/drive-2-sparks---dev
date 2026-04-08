@@ -325,7 +325,7 @@ export const authService = {
       }
 
       // Attempt 2: Codespace dev server endpoint (proxies GITHUB_TOKEN → GitHub API)
-      if (!githubUser) {
+      if (!githubUser && import.meta.env.DEV) {
         try {
           const res = await fetch('/__github-user')
           if (res.ok) {

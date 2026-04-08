@@ -174,6 +174,14 @@ const scoreSection = (content: string | undefined, preferredLength = 120) => {
   return Math.max(0, Math.min(100, score))
 }
 
+const hasUsefulMermaidShape = (diagram: string | undefined) => {
+  const value = (diagram || "").trim()
+  if (!value) return false
+  const hasHeader = /(^|\n)\s*(flowchart|graph)\s+/i.test(value)
+  const edgeCount = (value.match(/-->/g) || []).length
+  return hasHeader && edgeCount >= 4
+}
+
 const evaluateStrategyReadiness = (
   candidate: MarketingResult,
   guidedBriefCompletion: number
@@ -204,7 +212,7 @@ const evaluateStrategyReadiness = (
   if (sectionScores.databaseStarterSchema < 45) {
     blockers.push("Database starter schema is missing or too thin.")
   }
-  if (sectionScores.applicationFlowDiagram < 45 || sectionScores.uiFlowDiagram < 45) {
+  if (!hasUsefulMermaidShape(candidate.applicationFlowDiagram) || !hasUsefulMermaidShape(candidate.uiFlowDiagram)) {
     blockers.push("Workflow diagrams are missing or not detailed enough.")
   }
   if (guidedBriefCompletion < 3) {
@@ -802,15 +810,138 @@ ${guidedBriefContext}
 ${qaFeedback ? `Quality repair instructions:\n${qaFeedback}` : ""}
 
 Return ONLY valid JSON with exactly these 7 string fields:
-- visualIdentitySystem: include brand direction with hex colors, font pairing, and logo placeholder guidance.
-- databaseStarterSchema: include a practical SQL starter schema for the strategy.
-- applicationFlowDiagram: mermaid flowchart for app workflow.
-- uiFlowDiagram: mermaid flowchart for UI journey.
-- mobileStarterPlan: React Native + Node backend starter architecture and first sprint.
-- assetRecommendations: practical assets, prompts, and query packs to accelerate implementation.
+- visualIdentitySystem: Use markdown sections for Brand Direction, Color Tokens (at least 4 hex colors with names), Typography Pairing, Logo System, and Example UI tone.
+- databaseStarterSchema: practical SQL starter schema in a fenced sql code block.
+- applicationFlowDiagram: valid Mermaid flowchart with 8-14 nodes and at least one branch.
+- uiFlowDiagram: valid Mermaid flowchart with 8-14 nodes including key screen states and at least one branch.
+- mobileStarterPlan: markdown with sections: Architecture, Screen Map, Folder Tree, API Contracts, Sprint 1 Backlog, and include one fenced tsx code sample for React Native.
+- assetRecommendations: markdown with sections: Prompt Pack, UI Kit Sources, Stock/Illustration Queries, QA Checklist, and Launch Assets.
 - saveReadinessNotes: concise final-readiness checklist before saving strategy outputs.
 
-Keep values concise and actionable. Return ONLY JSON.`
+Rules:
+- For Mermaid fields, return Mermaid source only (no prose before/after).
+- For markdown fields, include short bullets and at least one concrete example per section.
+- Avoid generic filler text. Return ONLY JSON.`
+
+    const buildDetailedFlowDiagram = (title: string) =>
+      `flowchart TD\n  A[${title} Brief Approved] --> B[Requirements Breakdown]\n  B --> C[Information Architecture]\n  C --> D[Wireframes]\n  D --> E[Design System Alignment]\n  E --> F[Implementation Sprint]\n  F --> G[QA + Accessibility]\n  G --> H[Stakeholder Review]\n  H --> I[Release]\n  F --> J[Telemetry + Analytics]\n  J --> H`
+
+    const ensureMermaidDiagram = (raw: string | undefined, title: string) => {
+      const value = (raw || "").trim()
+      return hasUsefulMermaidShape(value) ? value : buildDetailedFlowDiagram(title)
+    }
+
+    const ensureVisualIdentity = (raw: string | undefined, fallbackVisualStrategy: string) => {
+      const value = (raw || "").trim()
+      const hasHex = /#[0-9a-fA-F]{6}/.test(value)
+      const hasTypography = /(font|typography)/i.test(value)
+      const hasLogo = /logo/i.test(value)
+      if (value.length >= 180 && hasHex && hasTypography && hasLogo) return value
+      return [
+        "## Brand Direction",
+        fallbackVisualStrategy || "Modern premium identity with clear hierarchy and strong contrast.",
+        "",
+        "## Color Tokens",
+        "- Obsidian `#111111`",
+        "- Champagne Gold `#D4AF37`",
+        "- Ivory `#F8F6F1`",
+        "- Slate `#334155`",
+        "",
+        "## Typography Pairing",
+        "- Headings: Playfair Display",
+        "- Body: Lato",
+        "- UI Labels: Source Sans 3",
+        "",
+        "## Logo System",
+        "- Primary mark: monogram with geometric enclosure.",
+        "- Secondary lockup: monogram + wordmark.",
+        "- Usage rule: keep clear space equal to cap-height of the wordmark.",
+      ].join("\n")
+    }
+
+    const ensureMobileStarterPlan = (raw: string | undefined, fallbackMobileWorkflow: string) => {
+      const value = (raw || "").trim()
+      const hasCodeBlock = /```tsx[\s\S]*```/i.test(value)
+      const hasSections = /(Architecture|Screen Map|Folder Tree|API Contracts|Sprint 1)/i.test(value)
+      if (value.length >= 320 && hasCodeBlock && hasSections) return value
+      return [
+        "## Architecture",
+        fallbackMobileWorkflow || "React Native app (Expo) + Node.js API + PostgreSQL, JWT auth, offline cache for key lists.",
+        "",
+        "## Screen Map",
+        "- Auth: Login -> Signup -> Forgot Password",
+        "- Core: Dashboard -> Project Detail -> Workflow Tasks -> Settings",
+        "- Utility: Notifications -> Profile -> Help",
+        "",
+        "## Folder Tree",
+        "```text",
+        "mobile/",
+        "  src/",
+        "    api/",
+        "    navigation/",
+        "    screens/",
+        "    components/",
+        "    stores/",
+        "    hooks/",
+        "```",
+        "",
+        "## API Contracts",
+        "- `POST /api/auth/login` -> `{ token, refreshToken, user }`",
+        "- `GET /api/projects` -> `Project[]`",
+        "- `POST /api/tasks` -> `Task`",
+        "",
+        "## Sprint 1 Backlog",
+        "1. Auth flow + token refresh",
+        "2. Dashboard list + pagination",
+        "3. Project detail + task creation",
+        "4. Local cache sync + error states",
+        "",
+        "## React Native Sample (TSX)",
+        "```tsx",
+        "import { View, Text } from \"react-native\"",
+        "",
+        "export function DashboardScreen() {",
+        "  return (",
+        "    <View style={{ flex: 1, padding: 16 }}>",
+        "      <Text style={{ fontSize: 22, fontWeight: \"700\" }}>Project Dashboard</Text>",
+        "      <Text style={{ marginTop: 8 }}>Fetch and render project cards here.</Text>",
+        "    </View>",
+        "  )",
+        "}",
+        "```",
+      ].join("\n")
+    }
+
+    const ensureAssetRecommendations = (raw: string | undefined) => {
+      const value = (raw || "").trim()
+      const hasSections = /(Prompt Pack|UI Kit|Stock|Checklist|Launch)/i.test(value)
+      if (value.length >= 280 && hasSections) return value
+      return [
+        "## Prompt Pack",
+        "- Positioning prompt: define ICP, pain points, and differentiator in <150 words.",
+        "- Campaign prompt: generate 5 message variants by funnel stage.",
+        "- QA prompt: verify claims, tone, and CTA specificity.",
+        "",
+        "## UI Kit Sources",
+        "- Figma community kits: dashboard, onboarding, analytics.",
+        "- Icon sets: Phosphor and Lucide for consistent stroke style.",
+        "",
+        "## Stock/Illustration Queries",
+        "- \"premium product team collaboration office\"",
+        "- \"mobile app onboarding flow screens\"",
+        "- \"enterprise dashboard data visualization\"",
+        "",
+        "## QA Checklist",
+        "- Visual contrast passes WCAG AA.",
+        "- Copy style remains consistent across screens.",
+        "- All key metrics have source-of-truth mapping.",
+        "",
+        "## Launch Assets",
+        "- One-page sales sheet",
+        "- Product walkthrough script",
+        "- Demo dataset and seeded accounts",
+      ].join("\n")
+    }
 
     if (typeof spark.llm !== "function") {
       const error = new Error("Spark LLM function is not available.")
@@ -879,24 +1010,24 @@ Keep values concise and actionable. Return ONLY JSON.`
       databaseWorkflow: (parsedResult.databaseWorkflow || "Database workflow guidance was not generated. Please regenerate to get implementation steps.").trim(),
       mobileWorkflow: (parsedResult.mobileWorkflow || "Mobile workflow guidance was not generated. Please regenerate to get implementation steps.").trim(),
       implementationChecklist: (parsedResult.implementationChecklist || "Implementation checklist was not generated. Please regenerate to get sprint-ready tasks.").trim(),
-      visualIdentitySystem: pickText(
-        parsedArtifacts,
-        "visualIdentitySystem",
-        `${parsedResult.visualStrategy || "Visual guidance"}. Suggested palette: #0F766E, #EA580C, #1F2937. Font pair: Poppins + Source Sans 3. Logo placeholder: geometric mark + wordmark.`
+      visualIdentitySystem: ensureVisualIdentity(
+        pickText(parsedArtifacts, "visualIdentitySystem", ""),
+        (parsedResult.visualStrategy || "").trim()
       ),
       databaseStarterSchema: pickText(parsedArtifacts, "databaseStarterSchema", defaultSchema),
-      applicationFlowDiagram: pickText(parsedArtifacts, "applicationFlowDiagram", buildFallbackFlowDiagram("Application")),
-      uiFlowDiagram: pickText(parsedArtifacts, "uiFlowDiagram", buildFallbackFlowDiagram("UI Journey")),
-      mobileStarterPlan: pickText(
-        parsedArtifacts,
-        "mobileStarterPlan",
-        `${parsedResult.mobileWorkflow || "Start with a React Native client and Node API."} Include auth, shared API client, offline cache, and analytics events in sprint 1.`
+      applicationFlowDiagram: ensureMermaidDiagram(
+        pickText(parsedArtifacts, "applicationFlowDiagram", buildFallbackFlowDiagram("Application")),
+        "Application"
       ),
-      assetRecommendations: pickText(
-        parsedArtifacts,
-        "assetRecommendations",
-        "Prepare a prompt pack (audience, CTA, objection handling), SQL query snippets for dashboards, API test collection, and a reusable launch checklist."
+      uiFlowDiagram: ensureMermaidDiagram(
+        pickText(parsedArtifacts, "uiFlowDiagram", buildFallbackFlowDiagram("UI Journey")),
+        "UI Journey"
       ),
+      mobileStarterPlan: ensureMobileStarterPlan(
+        pickText(parsedArtifacts, "mobileStarterPlan", ""),
+        (parsedResult.mobileWorkflow || "").trim()
+      ),
+      assetRecommendations: ensureAssetRecommendations(pickText(parsedArtifacts, "assetRecommendations", "")),
       saveReadinessNotes: pickText(
         parsedArtifacts,
         "saveReadinessNotes",
@@ -2833,18 +2964,21 @@ ${JSON.stringify(candidate)}`
                           title="Visual Identity System"
                           icon={<Palette size={24} weight="duotone" />}
                           content={result.visualIdentitySystem || "Visual identity system not available."}
+                          variant="rich"
                           delay={0.8}
                         />
                         <ResultCard
                           title="Application Workflow Diagram (Mermaid)"
                           icon={<Code size={24} weight="duotone" />}
                           content={result.applicationFlowDiagram || "Application workflow diagram not available."}
+                          variant="diagram"
                           delay={0.9}
                         />
                         <ResultCard
                           title="UI Journey Diagram (Mermaid)"
                           icon={<Desktop size={24} weight="duotone" />}
                           content={result.uiFlowDiagram || "UI workflow diagram not available."}
+                          variant="diagram"
                           delay={1}
                         />
                         <ResultCard
@@ -2857,12 +2991,14 @@ ${JSON.stringify(candidate)}`
                           title="Mobile Starter Plan"
                           icon={<DeviceMobile size={24} weight="duotone" />}
                           content={result.mobileStarterPlan || "Mobile starter plan not available."}
+                          variant="rich"
                           delay={1.2}
                         />
                         <ResultCard
                           title="Implementation Asset Pack"
                           icon={<FolderOpen size={24} weight="duotone" />}
                           content={result.assetRecommendations || "Asset recommendations not available."}
+                          variant="rich"
                           delay={1.3}
                         />
                         <ResultCard

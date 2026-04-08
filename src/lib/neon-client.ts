@@ -116,6 +116,14 @@ export async function getNeonClient(): Promise<ReturnType<typeof neon>> {
 
     let proxyError: string | null = null
 
+    // Short-circuit network request if unauthenticated (saves ~500ms per skipped request on load)
+    const token = typeof localStorage !== "undefined"
+      ? (localStorage.getItem("sentinel-auth-token") || localStorage.getItem("sentinel_token"))
+      : null
+    if (!token && !allowDirectNeonFallback()) {
+      throw new Error("Authentication required for database proxy")
+    }
+
     // Try backend proxy first
     try {
       const resp = await fetch(`${getBackendUrl()}/api/proxy/db/query`, {

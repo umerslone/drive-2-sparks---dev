@@ -66,7 +66,7 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
   </div>
   <div class="section">
     <h2>Visual Identity System</h2>
-    <p>${escapeHtml(strategy.result.visualIdentitySystem || "Not available")}</p>
+    <pre>${escapeHtml(strategy.result.visualIdentitySystem || "Not available")}</pre>
   </div>
   <div class="section">
     <h2>Application Workflow Diagram (Mermaid)</h2>
@@ -82,11 +82,11 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
   </div>
   <div class="section">
     <h2>Mobile Starter Plan</h2>
-    <p>${escapeHtml(strategy.result.mobileStarterPlan || "Not available")}</p>
+    <pre>${escapeHtml(strategy.result.mobileStarterPlan || "Not available")}</pre>
   </div>
   <div class="section">
-    <h2>Asset Recommendations</h2>
-    <p>${escapeHtml(strategy.result.assetRecommendations || "Not available")}</p>
+    <h2>Implementation Asset Pack</h2>
+    <pre>${escapeHtml(strategy.result.assetRecommendations || "Not available")}</pre>
   </div>
   <div class="section">
     <h2>Save Readiness Notes</h2>

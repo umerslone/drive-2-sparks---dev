@@ -372,32 +372,32 @@ export async function exportStrategyAsWord(strategy: SavedStrategy) {
 
     <div class="section">
       <h2>Visual Identity System</h2>
-      <p>${(strategy.result.visualIdentitySystem || 'Not available').replace(/\n/g, '</p><p>')}</p>
+      <pre>${strategy.result.visualIdentitySystem || 'Not available'}</pre>
     </div>
 
     <div class="section">
       <h2>Application Workflow Diagram (Mermaid)</h2>
-      <p>${(strategy.result.applicationFlowDiagram || 'Not available').replace(/\n/g, '</p><p>')}</p>
+      <pre>${strategy.result.applicationFlowDiagram || 'Not available'}</pre>
     </div>
 
     <div class="section">
       <h2>UI Journey Diagram (Mermaid)</h2>
-      <p>${(strategy.result.uiFlowDiagram || 'Not available').replace(/\n/g, '</p><p>')}</p>
+      <pre>${strategy.result.uiFlowDiagram || 'Not available'}</pre>
     </div>
 
     <div class="section">
       <h2>Database Starter Schema</h2>
-      <p>${(strategy.result.databaseStarterSchema || 'Not available').replace(/\n/g, '</p><p>')}</p>
+      <pre>${strategy.result.databaseStarterSchema || 'Not available'}</pre>
     </div>
 
     <div class="section">
       <h2>Mobile Starter Plan</h2>
-      <p>${(strategy.result.mobileStarterPlan || 'Not available').replace(/\n/g, '</p><p>')}</p>
+      <pre>${strategy.result.mobileStarterPlan || 'Not available'}</pre>
     </div>
 
     <div class="section">
-      <h2>Asset Recommendations</h2>
-      <p>${(strategy.result.assetRecommendations || 'Not available').replace(/\n/g, '</p><p>')}</p>
+      <h2>Implementation Asset Pack</h2>
+      <pre>${strategy.result.assetRecommendations || 'Not available'}</pre>
     </div>
 
     <div class="section">
