@@ -268,6 +268,41 @@ export async function exportStrategyAsWord(strategy: SavedStrategy) {
       <h2>Implementation Checklist</h2>
       <p>${(strategy.result.implementationChecklist || 'Not available').replace(/\n/g, '</p><p>')}</p>
     </div>
+
+    <div class="section">
+      <h2>Visual Identity System</h2>
+      <p>${(strategy.result.visualIdentitySystem || 'Not available').replace(/\n/g, '</p><p>')}</p>
+    </div>
+
+    <div class="section">
+      <h2>Application Workflow Diagram (Mermaid)</h2>
+      <p>${(strategy.result.applicationFlowDiagram || 'Not available').replace(/\n/g, '</p><p>')}</p>
+    </div>
+
+    <div class="section">
+      <h2>UI Journey Diagram (Mermaid)</h2>
+      <p>${(strategy.result.uiFlowDiagram || 'Not available').replace(/\n/g, '</p><p>')}</p>
+    </div>
+
+    <div class="section">
+      <h2>Database Starter Schema</h2>
+      <p>${(strategy.result.databaseStarterSchema || 'Not available').replace(/\n/g, '</p><p>')}</p>
+    </div>
+
+    <div class="section">
+      <h2>Mobile Starter Plan</h2>
+      <p>${(strategy.result.mobileStarterPlan || 'Not available').replace(/\n/g, '</p><p>')}</p>
+    </div>
+
+    <div class="section">
+      <h2>Asset Recommendations</h2>
+      <p>${(strategy.result.assetRecommendations || 'Not available').replace(/\n/g, '</p><p>')}</p>
+    </div>
+
+    <div class="section">
+      <h2>Save Readiness Notes</h2>
+      <p>${(strategy.result.saveReadinessNotes || 'Not available').replace(/\n/g, '</p><p>')}</p>
+    </div>
   </div>
 
   <div class="footer">

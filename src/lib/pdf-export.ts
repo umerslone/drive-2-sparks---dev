@@ -33,6 +33,8 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
     .header { border-bottom: 3px solid ${brand.colors.accent}; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
     h1 { color: ${brand.colors.primary}; }
     .section { margin: 20px 0; padding: 15px; border-left: 3px solid ${brand.colors.accent}; background: ${brand.colors.panel}; }
+    .section p, .section pre { white-space: pre-wrap; margin: 0; }
+    .section pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
     .footer { margin-top: 50px; border-top: 2px solid ${brand.colors.accent}; padding-top: 20px; text-align: center; font-size: 12px; color: ${brand.colors.muted}; }
   </style>
 </head>
@@ -61,6 +63,34 @@ export async function exportStrategyAsPDF(strategy: SavedStrategy) {
   <div class="section">
     <h2>Target Audience</h2>
     <p>${escapeHtml(strategy.result.targetAudience)}</p>
+  </div>
+  <div class="section">
+    <h2>Visual Identity System</h2>
+    <p>${escapeHtml(strategy.result.visualIdentitySystem || "Not available")}</p>
+  </div>
+  <div class="section">
+    <h2>Application Workflow Diagram (Mermaid)</h2>
+    <pre>${escapeHtml(strategy.result.applicationFlowDiagram || "Not available")}</pre>
+  </div>
+  <div class="section">
+    <h2>UI Journey Diagram (Mermaid)</h2>
+    <pre>${escapeHtml(strategy.result.uiFlowDiagram || "Not available")}</pre>
+  </div>
+  <div class="section">
+    <h2>Database Starter Schema</h2>
+    <pre>${escapeHtml(strategy.result.databaseStarterSchema || "Not available")}</pre>
+  </div>
+  <div class="section">
+    <h2>Mobile Starter Plan</h2>
+    <p>${escapeHtml(strategy.result.mobileStarterPlan || "Not available")}</p>
+  </div>
+  <div class="section">
+    <h2>Asset Recommendations</h2>
+    <p>${escapeHtml(strategy.result.assetRecommendations || "Not available")}</p>
+  </div>
+  <div class="section">
+    <h2>Save Readiness Notes</h2>
+    <p>${escapeHtml(strategy.result.saveReadinessNotes || "Not available")}</p>
   </div>
   <div class="footer">
     <strong>${escapeHtml(brand.companyName)}</strong><br>
