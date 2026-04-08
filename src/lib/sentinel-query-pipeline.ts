@@ -62,6 +62,16 @@ export interface PipelineResult {
   userMessageId?: number
   assistantMessageId?: number
   retrievalTraceId?: number
+  postProcess?: {
+    enabled: boolean
+    contentType: "strategy" | "chat" | "email-template" | "ngo-report" | "general"
+    profile: "strict" | "balanced" | "creative"
+    preserveFactsStrictly: boolean
+    matchMyVoice: boolean
+    changed: boolean
+    aiSignalBefore: number
+    aiSignalAfter: number
+  }
 }
 
 export async function sentinelQuery(
@@ -81,6 +91,11 @@ export async function sentinelQuery(
     persistConversation?: boolean
     webSearch?: boolean
     userMessageMetadata?: Record<string, unknown>
+    humanizeOnOutput?: boolean
+    preserveFactsStrictly?: boolean
+    matchMyVoice?: boolean
+    voiceSample?: string
+    postProcessProfile?: "strict" | "balanced" | "creative"
   }
 ): Promise<PipelineResult> {
   const providers: QueryProvider[] = []
@@ -144,8 +159,21 @@ export async function sentinelQuery(
     result: Omit<PipelineResult, "threadId" | "userMessageId" | "assistantMessageId" | "retrievalTraceId">,
     generationLatency?: number
   ): Promise<PipelineResult> => {
+    const postProcess = applyUniversalPostProcessor(result.response, {
+      moduleName,
+      humanizeOnOutput: options?.humanizeOnOutput,
+      preserveFactsStrictly: options?.preserveFactsStrictly,
+      matchMyVoice: options?.matchMyVoice,
+      voiceSample: options?.voiceSample,
+      postProcessProfile: options?.postProcessProfile,
+      // Do not mutate clarification messages.
+      bypass: result.status === "needs_clarification",
+    })
+
     const base: PipelineResult = {
       ...result,
+      response: postProcess.output,
+      postProcess: postProcess.meta,
       threadId,
     }
 
@@ -164,7 +192,7 @@ export async function sentinelQuery(
       const assistantMsg = await appendChatMessage({
         thread_id: threadId,
         role: "assistant",
-        content: result.response,
+        content: base.response,
         provider: result.providers[result.providers.length - 1],
         model_used: result.model,
         providers_used: result.providers,
@@ -175,6 +203,7 @@ export async function sentinelQuery(
           qualityScore: result.qualityScore ?? null,
           clarificationQuestions: result.clarificationQuestions ?? [],
           module: options?.module ?? null,
+          postProcess: postProcess.meta,
         },
       })
       assistantMessageId = assistantMsg.id
@@ -591,6 +620,196 @@ Create a unified, humanized response that intelligently combines the best of all
     : ""
 
   throw new Error(`All providers failed. Please check your API configuration. (${configHint}).${detail}`)
+}
+
+function inferContentType(moduleName: string): "strategy" | "chat" | "email-template" | "ngo-report" | "general" {
+  const normalized = String(moduleName || "").toLowerCase()
+  if (normalized.includes("chat") || normalized === "rag_chat") return "chat"
+  if (normalized.includes("email") || normalized.includes("mailer") || normalized.includes("invite")) {
+    return "email-template"
+  }
+  if (normalized.includes("ngo") || normalized.includes("report")) return "ngo-report"
+  if (
+    normalized.includes("strategy") ||
+    normalized.includes("idea") ||
+    normalized.includes("marketing")
+  ) {
+    return "strategy"
+  }
+  return "general"
+}
+
+function defaultProfileForContentType(
+  contentType: "strategy" | "chat" | "email-template" | "ngo-report" | "general"
+): "strict" | "balanced" | "creative" {
+  if (contentType === "ngo-report") return "strict"
+  if (contentType === "email-template") return "strict"
+  if (contentType === "chat") return "creative"
+  if (contentType === "strategy") return "balanced"
+  return "balanced"
+}
+
+function scoreAiSignals(input: string): number {
+  const text = String(input || "")
+  const rules: Array<{ regex: RegExp; weight: number }> = [
+    { regex: /\b(let'?s dive in|here'?s what you need to know|in conclusion)\b/gi, weight: 14 },
+    { regex: /\b(pivotal|testament|landscape|underscores?|showcasing|vibrant|crucial)\b/gi, weight: 10 },
+    { regex: /\b(in order to|due to the fact that|it could potentially)\b/gi, weight: 10 },
+    { regex: /,\s*(no guessing|no wasted motion|no fluff)\b/gi, weight: 9 },
+    { regex: /^\s*[-*]\s*\*\*[^*]+\*\*\s*:/gim, weight: 8 },
+  ]
+
+  let score = 0
+  for (const rule of rules) {
+    const hits = (text.match(rule.regex) || []).length
+    if (hits > 0) score += Math.min(100, hits * rule.weight)
+  }
+  return Math.min(100, Math.round(score))
+}
+
+function preserveQuotedAndNumericTokens(
+  original: string,
+  rewritten: string,
+  enabled: boolean
+): string {
+  if (!enabled) return rewritten
+
+  let output = rewritten
+  const quotedOriginal = original.match(/"([^"]+)"|'([^']+)'/g) || []
+  const quotedRewritten = output.match(/"([^"]+)"|'([^']+)'/g) || []
+  if (quotedOriginal.length > quotedRewritten.length && quotedOriginal.length > 0) {
+    output += `\n\nQuoted references preserved: ${quotedOriginal.join(" ")}`
+  }
+
+  const originalNums = original.match(/\b\d+(?:[.,]\d+)?%?\b/g) || []
+  const rewrittenNums = output.match(/\b\d+(?:[.,]\d+)?%?\b/g) || []
+  const missing = originalNums.filter((n) => !rewrittenNums.includes(n))
+  if (missing.length > 0) {
+    output += `\n\nKey figures: ${Array.from(new Set(missing)).join(", ")}`
+  }
+
+  return output
+}
+
+function applyVoiceHints(text: string, voiceSample?: string, enabled?: boolean): string {
+  if (!enabled || !voiceSample || voiceSample.trim().length < 80) return text
+
+  const sample = voiceSample.trim()
+  const prefersShortSentences = (sample.match(/[.!?]/g) || []).length > 0
+    ? sample.length / (sample.match(/[.!?]/g) || []).length < 85
+    : false
+  const usesContractions = /\b\w+'(t|re|ve|ll|d|s)\b/i.test(sample)
+
+  let out = text
+  if (prefersShortSentences) {
+    out = out.replace(/;\s+/g, ". ")
+  }
+  if (usesContractions) {
+    out = out
+      .replace(/\bdo not\b/gi, "don't")
+      .replace(/\bcannot\b/gi, "can't")
+      .replace(/\bit is\b/gi, "it's")
+  }
+  return out
+}
+
+function humanizeByProfile(
+  input: string,
+  profile: "strict" | "balanced" | "creative",
+  preserveFactsStrictly: boolean
+): string {
+  let out = String(input || "")
+
+  // Shared cleanup
+  out = out
+    .replace(/\bIn order to\b/g, "To")
+    .replace(/\bDue to the fact that\b/g, "Because")
+    .replace(/\bAdditionally\b/g, "Also")
+    .replace(/\bLet'?s dive in\b:?\s*/gi, "")
+    .replace(/\bHere'?s what you need to know\b:?\s*/gi, "")
+    .replace(/\*\*([^*]+)\*\*\s*:/g, "$1:")
+
+  if (profile === "strict") {
+    out = out
+      .replace(/\b(pivotal|groundbreaking|vibrant|breathtaking)\b/gi, (m) => {
+        if (preserveFactsStrictly) return m
+        if (/pivotal/i.test(m)) return "important"
+        if (/groundbreaking/i.test(m)) return "notable"
+        return "well-known"
+      })
+      .replace(/\s+—\s+/g, ", ")
+  } else if (profile === "creative") {
+    out = out
+      .replace(/\btherefore\b/gi, "so")
+      .replace(/\bfurthermore\b/gi, "also")
+      .replace(/\bhowever\b/gi, "but")
+  } else {
+    // balanced
+    out = out
+      .replace(/\btestament to\b/gi, "example of")
+      .replace(/\bshowcasing\b/gi, "showing")
+  }
+
+  return preserveQuotedAndNumericTokens(input, out, preserveFactsStrictly)
+}
+
+function applyUniversalPostProcessor(
+  input: string,
+  opts: {
+    moduleName: string
+    humanizeOnOutput?: boolean
+    preserveFactsStrictly?: boolean
+    matchMyVoice?: boolean
+    voiceSample?: string
+    postProcessProfile?: "strict" | "balanced" | "creative"
+    bypass?: boolean
+  }
+): {
+  output: string
+  meta: PipelineResult["postProcess"]
+} {
+  const contentType = inferContentType(opts.moduleName)
+  const profile = opts.postProcessProfile || defaultProfileForContentType(contentType)
+  const enabled = opts.humanizeOnOutput ?? true
+  const preserveFactsStrictly =
+    opts.preserveFactsStrictly ?? (contentType === "ngo-report" || contentType === "email-template")
+  const matchMyVoice = Boolean(opts.matchMyVoice)
+
+  const aiSignalBefore = scoreAiSignals(input)
+
+  if (opts.bypass || !enabled || !input?.trim()) {
+    return {
+      output: input,
+      meta: {
+        enabled,
+        contentType,
+        profile,
+        preserveFactsStrictly,
+        matchMyVoice,
+        changed: false,
+        aiSignalBefore,
+        aiSignalAfter: aiSignalBefore,
+      },
+    }
+  }
+
+  let output = humanizeByProfile(input, profile, preserveFactsStrictly)
+  output = applyVoiceHints(output, opts.voiceSample, matchMyVoice)
+  const aiSignalAfter = scoreAiSignals(output)
+
+  return {
+    output,
+    meta: {
+      enabled,
+      contentType,
+      profile,
+      preserveFactsStrictly,
+      matchMyVoice,
+      changed: output !== input,
+      aiSignalBefore,
+      aiSignalAfter,
+    },
+  }
 }
 
 function validatePromptQuality(
