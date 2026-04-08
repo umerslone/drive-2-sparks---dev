@@ -84,3 +84,16 @@ bootstrap().catch((error) => {
   renderCriticalFallback(safeMessage)
 })
 
+// Register PWA service worker (production only)
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .then((reg) => {
+        console.info('[PWA] Service worker registered:', reg.scope)
+      })
+      .catch((err) => {
+        console.warn('[PWA] Service worker registration failed:', err)
+      })
+  })
+}
+
