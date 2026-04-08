@@ -257,7 +257,13 @@ export function generateOAuthCallbackHtml(token, user) {
     <body>
       <p>Authentication successful! Redirecting...</p>
       <script>
-        // Store token in localStorage
+        // Clear any existing session (old admin or previous user)
+        localStorage.removeItem('current-user-id');
+        localStorage.removeItem('current-user-id-local');
+        localStorage.removeItem('platform-users');
+        localStorage.removeItem('user-credentials');
+
+        // Store the new OAuth token and user
         localStorage.setItem('sentinel-auth-token', '${token}');
         localStorage.setItem('sentinel-current-user', '${user.id}');
         
