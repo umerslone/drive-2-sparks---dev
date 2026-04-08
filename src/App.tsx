@@ -144,6 +144,7 @@ function App() {
     `post-process-settings-${userIdForKV}`,
     defaultPostProcessSettings
   )
+  const resolvedPostProcessSettings = postProcessSettings ?? defaultPostProcessSettings
   const [result, setResult] = useState<MarketingResult | null>(null)
   const [currentDescription, setCurrentDescription] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -488,11 +489,11 @@ function App() {
         const pipelineResult = await sentinelQuery(prompt, {
           module: "strategy",
           contentType: "strategy",
-          humanizeOnOutput: postProcessSettings.humanizeOnOutput,
-          preserveFactsStrictly: postProcessSettings.preserveFactsStrictly,
-          matchMyVoice: postProcessSettings.matchMyVoice,
-          voiceSample: postProcessSettings.voiceSample,
-          postProcessProfile: postProcessSettings.postProcessProfile,
+          humanizeOnOutput: resolvedPostProcessSettings.humanizeOnOutput,
+          preserveFactsStrictly: resolvedPostProcessSettings.preserveFactsStrictly,
+          matchMyVoice: resolvedPostProcessSettings.matchMyVoice,
+          voiceSample: resolvedPostProcessSettings.voiceSample,
+          postProcessProfile: resolvedPostProcessSettings.postProcessProfile,
           useConsensus: true,
           sparkFallback: async () => {
             if (typeof spark !== "undefined" && typeof spark.llm === "function") {
@@ -1749,7 +1750,7 @@ ${JSON.stringify(candidate)}`
 
                 <div className="mb-4">
                   <PostProcessControls
-                    settings={postProcessSettings}
+                    settings={resolvedPostProcessSettings}
                     onChange={setPostProcessSettings}
                     title="Strategy Output Controls"
                   />
