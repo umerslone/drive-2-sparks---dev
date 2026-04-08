@@ -2,7 +2,8 @@
 
 set -e
 
-WORKSPACE_DIR="/workspaces/spark-template"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 LATEST_RELEASE=$(curl -s https://api.github.com/repos/github/spark-template/releases/latest)
 RELEASE_ID=$(echo "$LATEST_RELEASE" | jq -r '.id')
 
