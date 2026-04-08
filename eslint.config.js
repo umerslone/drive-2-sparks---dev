@@ -9,6 +9,17 @@ export default tseslint.config(
     ignores: ["dist", "node_modules", "packages/**/dist"],
   },
   {
+    files: ["public/sw.js"],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: "script",
+      globals: {
+        ...globals.serviceworker,
+      },
+    },
+  },
+  {
     files: ["**/*.{js,mjs,cjs}"],
     extends: [js.configs.recommended],
     languageOptions: {
