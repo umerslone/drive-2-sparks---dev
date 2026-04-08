@@ -3,12 +3,6 @@
  * 
  * Tracks user generation history and infers style preferences.
  * Computes aggregated profiles used to personalize future generations.
- * 
- * Key Functions:
- * - logGenerationInsight: Record user behavior for a generation
- * - buildUserProfile: Infer user's style preferences
- * - getOrBuildProfile: Fetch/compute cached user profile
- * - injectStyleHints: Transform base prompt with user's style
  */
 
 import { neon } from "@neondatabase/serverless"
@@ -27,23 +21,22 @@ function getSql() {
 
 /**
  * Log a generation insight for later analysis
- * Call this after every successful strategy generation
+ * @param {Object} input
+ * @param {string} input.userId
+ * @param {string} input.conceptMode
+ * @param {string} input.tonePreference
+ * @param {string} input.audienceLevel
+ * @param {number} input.estimatedSatisfaction
+ * @param {string[]} input.sectionsEdited
+ * @param {number} [input.qualityScore]
+ * @param {number} [input.costCents]
+ * @param {string} [input.providerUsed]
+ * @param {string} [input.modelUsed]
+ * @param {string} [input.queryPreview]
+ * @param {boolean} [input.wasSaved]
+ * @param {Object} [input.metadata]
  */
-export async function logGenerationInsight(input: {
-  userId: string
-  conceptMode: string  // e.g., 'SaaS', 'Retail', 'Healthcare'
-  tonePreference: string  // 'professional' | 'casual' | 'creative'
-  audienceLevel: string  // 'beginner' | 'intermediate' | 'expert'
-  estimatedSatisfaction: number  // 0-1 scale (inferred from behavior)
-  sectionsEdited: string[]  // e.g., ['marketingCopy', 'visualStrategy']
-  qualityScore?: number  // 0-100, if available
-  costCents?: number
-  providerUsed?: string
-  modelUsed?: string
-  queryPreview?: string
-  wasSaved?: boolean
-  metadata?: Record<string, unknown>
-}) {
+export async function logGenerationInsight(input) {
   if (!process.env.NEON_DATABASE_URL) return
 
   try {
@@ -82,25 +75,24 @@ export async function logGenerationInsight(input: {
     `
   } catch (error) {
     console.error("Failed to log generation insight:", error)
-    // Don't throw; this is non-critical profiling
   }
 }
 
 /**
  * Record user feedback on a generated strategy
+ * @param {Object} input
+ * @param {string} input.userId
+ * @param {number} [input.generationId]
+ * @param {number} input.qualityRating
+ * @param {number} [input.toneFit]
+ * @param {number} [input.audienceMatch]
+ * @param {number} [input.originality]
+ * @param {string} [input.comment]
+ * @param {boolean} [input.usedInProduction]
+ * @param {string} [input.outcomeMetric]
+ * @param {number} [input.outcomeValue]
  */
-export async function recordStyleFeedback(input: {
-  userId: string
-  generationId?: number
-  qualityRating: number  // 1-5
-  toneFit?: number       // 1-5
-  audienceMatch?: number // 1-5
-  originality?: number   // 1-5
-  comment?: string
-  usedInProduction?: boolean
-  outcomeMetric?: string  // 'clicks', 'conversions', etc.
-  outcomeValue?: number
-}) {
+export async function recordStyleFeedback(input) {
   if (!process.env.NEON_DATABASE_URL) return
 
   try {
@@ -138,9 +130,10 @@ export async function recordStyleFeedback(input: {
 
 /**
  * Infer user style profile from recent generations
- * Called periodically to update user_style_profiles table
+ * @param {string} userId
+ * @returns {Promise<Object>}
  */
-async function inferUserProfile(userId: string) {
+async function inferUserProfile(userId) {
   if (!process.env.NEON_DATABASE_URL) {
     return {
       userId,
@@ -183,7 +176,7 @@ async function inferUserProfile(userId: string) {
     }
 
     // Compute preferred industries
-    const industryMap = new Map<string, number>()
+    const industryMap = new Map()
     insights.forEach(insight => {
       const count = industryMap.get(insight.concept_mode) || 0
       industryMap.set(insight.concept_mode, count + 1)
@@ -194,7 +187,7 @@ async function inferUserProfile(userId: string) {
       .map(([industry, count]) => ({ industry, count }))
 
     // Compute dominant tone
-    const toneMap = new Map<string, number>()
+    const toneMap = new Map()
     insights.forEach(insight => {
       const count = toneMap.get(insight.tone_preference) || 0
       toneMap.set(insight.tone_preference, count + 1)
@@ -203,12 +196,8 @@ async function inferUserProfile(userId: string) {
       Array.from(toneMap.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ||
       "professional"
 
-    // Compute audience level (treat as ordinal: beginner < intermediate < expert)
-    const audienceLevelMap: Record<string, number> = {
-      beginner: 1,
-      intermediate: 2,
-      expert: 3
-    }
+    // Compute audience level
+    const audienceLevelMap = { beginner: 1, intermediate: 2, expert: 3 }
     const avgAudienceScore =
       insights.reduce((sum, i) => sum + (audienceLevelMap[i.audience_level] || 2), 0) /
       insights.length
@@ -220,10 +209,10 @@ async function inferUserProfile(userId: string) {
           : "expert"
 
     // Compute frequent edits
-    const editMap = new Map<string, number>()
+    const editMap = new Map()
     insights.forEach(insight => {
       if (Array.isArray(insight.sections_edited)) {
-        insight.sections_edited.forEach((section: string) => {
+        insight.sections_edited.forEach(section => {
           const count = editMap.get(section) || 0
           editMap.set(section, count + 1)
         })
@@ -237,7 +226,7 @@ async function inferUserProfile(userId: string) {
     // Compute average quality score
     const validScores = insights
       .filter(i => i.quality_score !== null && i.quality_score !== undefined)
-      .map(i => i.quality_score as number)
+      .map(i => i.quality_score)
     const avgQualityScore =
       validScores.length > 0
         ? validScores.reduce((a, b) => a + b, 0) / validScores.length
@@ -266,9 +255,11 @@ async function inferUserProfile(userId: string) {
 
 /**
  * Get or build cached user style profile
- * Returns profile from DB with cache staleness check
+ * @param {string} userId
+ * @param {boolean} [forcRefresh]
+ * @returns {Promise<Object>}
  */
-export async function getOrBuildUserProfile(userId: string, forcRefresh = false) {
+export async function getOrBuildUserProfile(userId, forcRefresh = false) {
   if (!process.env.NEON_DATABASE_URL) {
     return {
       userId,
@@ -300,7 +291,7 @@ export async function getOrBuildUserProfile(userId: string, forcRefresh = false)
     const profile = existing?.[0]
     const now = Date.now()
     const lastUpdate = profile?.updated_at ? new Date(profile.updated_at).getTime() : 0
-    const isStale = (now - lastUpdate) > (60 * 60 * 1000) // > 1 hour
+    const isStale = (now - lastUpdate) > (60 * 60 * 1000)
 
     if (!forcRefresh && profile && !isStale) {
       return {
@@ -362,29 +353,31 @@ export async function getOrBuildUserProfile(userId: string, forcRefresh = false)
 
 /**
  * Inject user style hints into a base prompt
- * Used by sentinelQuery to tune generations to user preferences
+ * @param {string} basePrompt
+ * @param {Object} profile
+ * @returns {string}
  */
-export function injectStyleHints(basePrompt: string, profile: any): string {
+export function injectStyleHints(basePrompt, profile) {
   if (!profile || !profile.preferredIndustries || profile.preferredIndustries.length === 0) {
     return basePrompt
   }
 
   const styleContext = [
     "# User Style Profile Hints",
-    `Based on this user's generation history:`,
-    `- Preferred industries: ${profile.preferredIndustries.map((p: any) => p.industry).join(", ")}`,
+    `Based on user's generation history:`,
+    `- Preferred industries: ${profile.preferredIndustries.map(p => p.industry).join(", ")}`,
     `- Preferred tone: ${profile.dominantTone}`,
     `- Target audience level: ${profile.audienceLevel}`,
     `- Average quality score: ${profile.avgQualityScore}/100`
   ].join("\n")
 
-  // Prepend style hints to the base prompt
-  // (This ensures the LLM sees the user profile context before generating)
   return `${styleContext}\n\n${basePrompt}`
 }
 
 /**
- * Batch recompute all user profiles (call periodically via cron)
+ * Batch recompute all user profiles
+ * @param {number} [limit]
+ * @returns {Promise<void>}
  */
 export async function recomputeAllUserProfiles(limit = 100) {
   if (!process.env.NEON_DATABASE_URL) return
