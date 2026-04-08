@@ -22,6 +22,9 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
+
+    - name: Guard lockfile integrity
+      run: npm run guard:lockfile
         
     - name: Install dependencies
       run: npm ci
