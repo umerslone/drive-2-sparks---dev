@@ -43,7 +43,7 @@ export async function neonKVSet(key: string, value: unknown): Promise<void> {
       DO UPDATE SET value = ${JSON.stringify(value)}::jsonb, updated_at = now()
     `
   } catch (err) {
-    console.warn("Neon KV set failed (non-blocking):", err)
+    if (!(err instanceof Error && err.message.includes("Authentication required"))) console.warn("Neon KV set failed (non-blocking):", err)
   }
 }
 
@@ -54,7 +54,7 @@ export async function neonKVGet<T>(key: string): Promise<T | undefined> {
     const rows = await sql`SELECT value FROM kv_store WHERE key = ${key}` as { value: T }[]
     if (rows.length > 0) return rows[0].value
   } catch (err) {
-    console.warn("Neon KV get failed (non-blocking):", err)
+    if (!(err instanceof Error && err.message.includes("Authentication required"))) console.warn("Neon KV get failed (non-blocking):", err)
   }
   return undefined
 }
@@ -65,7 +65,7 @@ export async function neonKVDelete(key: string): Promise<void> {
     const sql = await getNeonClient()
     await sql`DELETE FROM kv_store WHERE key = ${key}`
   } catch (err) {
-    console.warn("Neon KV delete failed (non-blocking):", err)
+    if (!(err instanceof Error && err.message.includes("Authentication required"))) console.warn("Neon KV delete failed (non-blocking):", err)
   }
 }
 
@@ -76,7 +76,7 @@ export async function neonKVKeys(): Promise<string[]> {
     const rows = await sql`SELECT key FROM kv_store ORDER BY key` as { key: string }[]
     return rows.map((r) => r.key)
   } catch (err) {
-    console.warn("Neon KV keys failed:", err)
+    if (!(err instanceof Error && err.message.includes("Authentication required"))) console.warn("Neon KV keys failed:", err)
     return []
   }
 }

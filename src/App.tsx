@@ -1104,6 +1104,12 @@ ${JSON.stringify(candidate)}`
         if (qaVerdict.pass && readinessVerdict.pass) {
           finalResult = generated.result
           break
+        } else if (attempt === maxRetries) {
+          // If this is the last attempt and it fails strict QA/Readiness gating, we still accept
+          // the generated result so the user doesn't see a total failure (especially in fallback mode).
+          toast.warning("Final strategy didn't pass strict QA, but results are available.")
+          finalResult = generated.result
+          break
         }
 
         const allIssues = [
