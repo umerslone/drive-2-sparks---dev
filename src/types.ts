@@ -18,6 +18,13 @@ export interface MarketingResult {
   databaseWorkflow?: string
   mobileWorkflow?: string
   implementationChecklist?: string
+  visualIdentitySystem?: string
+  databaseStarterSchema?: string
+  applicationFlowDiagram?: string
+  uiFlowDiagram?: string
+  mobileStarterPlan?: string
+  assetRecommendations?: string
+  saveReadinessNotes?: string
 }
 
 export type StrategyWorkflowStage = "draft" | "qa" | "repair" | "final"

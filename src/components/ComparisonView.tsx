@@ -1,9 +1,9 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { X, ChatsCircle, Palette, Target, Code, Desktop, Database, DeviceMobile, ListChecks } from "@phosphor-icons/react"
+import { X, ChatsCircle, Palette, Target, Code, Desktop, Database, DeviceMobile, ListChecks, FolderOpen, ShieldCheck } from "@phosphor-icons/react"
 import { motion } from "framer-motion"
-import { SavedStrategy } from "@/types"
+import { MarketingResult, SavedStrategy } from "@/types"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 interface ComparisonViewProps {
@@ -16,15 +16,22 @@ export function ComparisonView({ strategies, onClose }: ComparisonViewProps) {
     return null
   }
 
-  const sections = [
-    { key: 'marketingCopy' as const, title: 'Marketing Copy', icon: <ChatsCircle size={20} weight="duotone" /> },
-    { key: 'visualStrategy' as const, title: 'Visual Strategy', icon: <Palette size={20} weight="duotone" /> },
-    { key: 'targetAudience' as const, title: 'Target Audience', icon: <Target size={20} weight="duotone" /> },
-    { key: 'applicationWorkflow' as const, title: 'Application Workflow', icon: <Code size={20} weight="duotone" /> },
-    { key: 'uiWorkflow' as const, title: 'UI Workflow', icon: <Desktop size={20} weight="duotone" /> },
-    { key: 'databaseWorkflow' as const, title: 'Database Workflow', icon: <Database size={20} weight="duotone" /> },
-    { key: 'mobileWorkflow' as const, title: 'Mobile Workflow', icon: <DeviceMobile size={20} weight="duotone" /> },
-    { key: 'implementationChecklist' as const, title: 'Implementation Checklist', icon: <ListChecks size={20} weight="duotone" /> },
+  const sections: Array<{ key: keyof MarketingResult; title: string; icon: React.ReactNode }> = [
+    { key: "marketingCopy", title: "Marketing Copy", icon: <ChatsCircle size={20} weight="duotone" /> },
+    { key: "visualStrategy", title: "Visual Strategy", icon: <Palette size={20} weight="duotone" /> },
+    { key: "targetAudience", title: "Target Audience", icon: <Target size={20} weight="duotone" /> },
+    { key: "applicationWorkflow", title: "Application Workflow", icon: <Code size={20} weight="duotone" /> },
+    { key: "uiWorkflow", title: "UI Workflow", icon: <Desktop size={20} weight="duotone" /> },
+    { key: "databaseWorkflow", title: "Database Workflow", icon: <Database size={20} weight="duotone" /> },
+    { key: "mobileWorkflow", title: "Mobile Workflow", icon: <DeviceMobile size={20} weight="duotone" /> },
+    { key: "implementationChecklist", title: "Implementation Checklist", icon: <ListChecks size={20} weight="duotone" /> },
+    { key: "visualIdentitySystem", title: "Visual Identity System", icon: <Palette size={20} weight="duotone" /> },
+    { key: "databaseStarterSchema", title: "Database Starter Schema", icon: <Database size={20} weight="duotone" /> },
+    { key: "applicationFlowDiagram", title: "Application Diagram", icon: <Code size={20} weight="duotone" /> },
+    { key: "uiFlowDiagram", title: "UI Diagram", icon: <Desktop size={20} weight="duotone" /> },
+    { key: "mobileStarterPlan", title: "Mobile Starter Plan", icon: <DeviceMobile size={20} weight="duotone" /> },
+    { key: "assetRecommendations", title: "Asset Recommendations", icon: <FolderOpen size={20} weight="duotone" /> },
+    { key: "saveReadinessNotes", title: "Save Readiness Notes", icon: <ShieldCheck size={20} weight="duotone" /> },
   ]
 
   return (

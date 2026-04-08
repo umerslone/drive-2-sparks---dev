@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Sparkle, Lightbulb, ChatsCircle, Palette, Target, ArrowClockwise, FloppyDisk, FolderOpen, Code, Desktop, Database, DeviceMobile, ListChecks, ChartBar, ShieldCheck, MagnifyingGlass, CaretUpDown, Check, BookOpen, ClockCounterClockwise, ArrowsHorizontal, LockSimple, Lightning, Brain } from "@phosphor-icons/react"
 import { UpgradePaywall } from "@/components/UpgradePaywall"
@@ -69,6 +70,23 @@ interface StrategyQAVerdict {
   score: number
   summary: string
   issues: string[]
+  sectionScores?: Record<string, number>
+}
+
+interface GuidedBrief {
+  businessGoal: string
+  primaryUsers: string
+  differentiator: string
+  monetization: string
+  techStack: string
+  constraints: string
+}
+
+interface StrategyReadinessVerdict {
+  pass: boolean
+  score: number
+  blockers: string[]
+  recommendations: string[]
 }
 
 const CONCEPT_MODE_INSTRUCTION: Record<ConceptMode, string> = {
@@ -125,6 +143,90 @@ const loadPersistedUIState = (): PersistedUIState => {
   }
 }
 
+const EMPTY_GUIDED_BRIEF: GuidedBrief = {
+  businessGoal: "",
+  primaryUsers: "",
+  differentiator: "",
+  monetization: "",
+  techStack: "",
+  constraints: "",
+}
+
+const getGuidedBriefCompletion = (guidedBrief: GuidedBrief) =>
+  Object.values(guidedBrief).filter((value) => value.trim().length >= 6).length
+
+const scoreSection = (content: string | undefined, preferredLength = 120) => {
+  const value = (content || "").trim()
+  if (!value) return 0
+
+  let score = 35
+  const lengthScore = Math.min(45, Math.round((value.length / preferredLength) * 45))
+  score += lengthScore
+
+  if (/(build|launch|measure|implement|ship|optimize|timeline|phase|kpi|metric|query|schema|component|endpoint)/i.test(value)) {
+    score += 12
+  }
+
+  if (/(generic|something|various|etc\.|many ways|it depends)/i.test(value)) {
+    score -= 18
+  }
+
+  return Math.max(0, Math.min(100, score))
+}
+
+const evaluateStrategyReadiness = (
+  candidate: MarketingResult,
+  guidedBriefCompletion: number
+): StrategyReadinessVerdict => {
+  const sectionScores = {
+    marketingCopy: scoreSection(candidate.marketingCopy),
+    visualStrategy: scoreSection(candidate.visualStrategy),
+    targetAudience: scoreSection(candidate.targetAudience),
+    applicationWorkflow: scoreSection(candidate.applicationWorkflow),
+    uiWorkflow: scoreSection(candidate.uiWorkflow),
+    databaseWorkflow: scoreSection(candidate.databaseWorkflow),
+    mobileWorkflow: scoreSection(candidate.mobileWorkflow),
+    implementationChecklist: scoreSection(candidate.implementationChecklist),
+    databaseStarterSchema: scoreSection(candidate.databaseStarterSchema, 220),
+    applicationFlowDiagram: scoreSection(candidate.applicationFlowDiagram, 100),
+    uiFlowDiagram: scoreSection(candidate.uiFlowDiagram, 100),
+    mobileStarterPlan: scoreSection(candidate.mobileStarterPlan, 160),
+  }
+
+  const blockers: string[] = []
+  const recommendations: string[] = []
+
+  if (sectionScores.marketingCopy < 55) blockers.push("Marketing copy is too generic.")
+  if (sectionScores.targetAudience < 55) blockers.push("Target audience section needs sharper segmentation.")
+  if (sectionScores.applicationWorkflow < 55 || sectionScores.implementationChecklist < 55) {
+    blockers.push("Execution workflow and checklist need clearer phased steps.")
+  }
+  if (sectionScores.databaseStarterSchema < 45) {
+    blockers.push("Database starter schema is missing or too thin.")
+  }
+  if (sectionScores.applicationFlowDiagram < 45 || sectionScores.uiFlowDiagram < 45) {
+    blockers.push("Workflow diagrams are missing or not detailed enough.")
+  }
+  if (guidedBriefCompletion < 3) {
+    recommendations.push("Fill at least 3 guided brief fields for more precise strategies.")
+  }
+
+  const avgScore = Math.round(
+    Object.values(sectionScores).reduce((sum, score) => sum + score, 0) / Object.keys(sectionScores).length
+  )
+
+  if (avgScore < 70) {
+    recommendations.push("Regenerate once with the current QA feedback to improve specificity.")
+  }
+
+  return {
+    pass: blockers.length === 0,
+    score: avgScore,
+    blockers,
+    recommendations,
+  }
+}
+
 function App() {
   const defaultPostProcessSettings: PostProcessSettings = {
     humanizeOnOutput: true,
@@ -138,6 +240,7 @@ function App() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [userIdForKV, setUserIdForKV] = useState<string>("temp")
   const [description, setDescription] = useState("")
+  const [guidedBrief, setGuidedBrief] = useState<GuidedBrief>(EMPTY_GUIDED_BRIEF)
   const [isLoading, setIsLoading] = useState(false)
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [postProcessSettings, setPostProcessSettings] = useSafeKV<PostProcessSettings>(
@@ -414,6 +517,25 @@ function App() {
       .slice(0, 5)
   }, [promptMemory, description])
 
+  const guidedBriefCompletion = useMemo(() => getGuidedBriefCompletion(guidedBrief), [guidedBrief])
+
+  const guidedBriefContext = useMemo(() => {
+    const lines = [
+      ["Business Goal", guidedBrief.businessGoal],
+      ["Primary Users", guidedBrief.primaryUsers],
+      ["Differentiator", guidedBrief.differentiator],
+      ["Monetization", guidedBrief.monetization],
+      ["Preferred Tech Stack", guidedBrief.techStack],
+      ["Constraints", guidedBrief.constraints],
+    ]
+      .filter(([, value]) => value.trim().length > 0)
+      .map(([label, value]) => `- ${label}: ${value.trim()}`)
+
+    if (lines.length === 0) return ""
+
+    return `\nGuided brief context:\n${lines.join("\n")}`
+  }, [guidedBrief])
+
   const rememberPrompt = (promptText: string, mode: ConceptMode) => {
     const normalized = promptText.trim()
     if (normalized.length < 10) return
@@ -475,10 +597,10 @@ function App() {
     }
 
     if (memoryLines.length === 0) {
-      return ""
+      return guidedBriefContext
     }
 
-    return `\n\nUser memory context (use to avoid repetition and improve continuity):\n${memoryLines.join("\n")}`
+    return `\n\nUser memory context (use to avoid repetition and improve continuity):\n${memoryLines.join("\n")}${guidedBriefContext}`
   }
 
   const runWithModelFallback = async (prompt: string, parseJson = false) => {
@@ -538,8 +660,24 @@ function App() {
     memoryContext: string,
     qaFeedback?: string
   ): Promise<{ result: MarketingResult; modelUsed: string }> => {
-    const parseEmbeddedJsonString = (raw: string): MarketingResult | null => {
+    const parseEmbeddedObject = (raw: unknown): Record<string, unknown> | null => {
       try {
+        if (typeof raw === "object" && raw !== null) {
+          const asObj = raw as Record<string, unknown>
+
+          if (typeof asObj.text === "string") {
+            const nestedFromText = parseEmbeddedObject(asObj.text)
+            if (nestedFromText) return nestedFromText
+          }
+
+          const keys = Object.keys(asObj)
+          if (keys.length === 1 && typeof asObj[keys[0]] === "object" && asObj[keys[0]] !== null) {
+            return asObj[keys[0]] as Record<string, unknown>
+          }
+
+          return asObj
+        }
+
         let candidate = String(raw || "").trim()
         if (candidate.startsWith("```json")) {
           candidate = candidate.replace(/^```json\s*/, "").replace(/```\s*$/, "")
@@ -553,12 +691,34 @@ function App() {
           candidate = candidate.substring(firstBrace, lastBrace + 1)
         }
 
-        const parsed = JSON.parse(candidate) as MarketingResult
+        candidate = candidate
+          .replace(/[\u2018\u2019]/g, "'")
+          .replace(/[\u201C\u201D]/g, '"')
+          .replace(/\u2013/g, "-")
+          .replace(/\u2014/g, "--")
+          .replace(/\u2026/g, "...")
+
+        const repaired = candidate
+          .replace(/,\s*}/g, "}")
+          .replace(/,\s*]/g, "]")
+
+        const parsed = JSON.parse(repaired) as Record<string, unknown>
         return parsed && typeof parsed === "object" ? parsed : null
       } catch {
         return null
       }
     }
+
+    const pickText = (obj: Record<string, unknown>, key: string, fallback: string) => {
+      const value = obj[key]
+      if (typeof value === "string" && value.trim().length > 0) return value.trim()
+      return fallback
+    }
+
+    const buildFallbackFlowDiagram = (title: string) =>
+      `flowchart TD\n  A[${title} kickoff] --> B[Define scope & outcomes]\n  B --> C[Build sprint tasks]\n  C --> D[QA and stakeholder review]\n  D --> E[Release and monitor KPIs]`
+
+    const defaultSchema = "```sql\nCREATE TABLE users (\n  id UUID PRIMARY KEY,\n  email TEXT UNIQUE NOT NULL,\n  role TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\nCREATE TABLE projects (\n  id UUID PRIMARY KEY,\n  user_id UUID REFERENCES users(id),\n  name TEXT NOT NULL,\n  status TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\nCREATE TABLE strategy_assets (\n  id UUID PRIMARY KEY,\n  project_id UUID REFERENCES projects(id),\n  asset_type TEXT NOT NULL,\n  payload JSONB NOT NULL,\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n```"
 
     if (typeof spark === "undefined") {
       const error = new Error("Spark API is not available. Please refresh the page.")
@@ -580,11 +740,13 @@ Apply the above concept mode guidance to provide domain-specific insights.`
       : `Selected Concept Mode: Auto
 Automatically select the most relevant archetypes and implementation patterns based on the topic.`
 
-    const prompt = spark.llmPrompt`You are an elite marketing strategist and solutions architect. Based on the topic below, produce a comprehensive strategy.
+    const corePrompt = spark.llmPrompt`You are an elite marketing strategist and solutions architect. Based on the topic below, produce a comprehensive strategy.
 
 Topic: ${description}
 
 ${contextSection}
+
+  ${guidedBriefContext}
 
 ${airtableContext ? `\nBackground Data from Airtable:\n${airtableContext}\n` : ""}
 
@@ -603,13 +765,41 @@ Return a JSON object with exactly these 8 string properties:
 
 Keep each value concise. Do NOT use newlines inside string values. Return ONLY valid JSON.`
 
+  const artifactsPrompt = spark.llmPrompt`Generate execution artifacts for this strategy topic.
+
+Topic: ${description}
+
+${contextSection}
+${guidedBriefContext}
+
+${qaFeedback ? `Quality repair instructions:\n${qaFeedback}` : ""}
+
+Return ONLY valid JSON with exactly these 7 string fields:
+- visualIdentitySystem: include brand direction with hex colors, font pairing, and logo placeholder guidance.
+- databaseStarterSchema: include a practical SQL starter schema for the strategy.
+- applicationFlowDiagram: mermaid flowchart for app workflow.
+- uiFlowDiagram: mermaid flowchart for UI journey.
+- mobileStarterPlan: React Native + Node backend starter architecture and first sprint.
+- assetRecommendations: practical assets, prompts, and query packs to accelerate implementation.
+- saveReadinessNotes: concise final-readiness checklist before saving strategy outputs.
+
+Keep values concise and actionable. Return ONLY JSON.`
+
     if (typeof spark.llm !== "function") {
       const error = new Error("Spark LLM function is not available.")
       await logError("Spark LLM function unavailable", error, "system", "critical", user?.id)
       throw error
     }
 
-    const { response, modelUsed } = await runWithModelFallback(prompt as string, false)
+    const [corePayload, artifactsPayload] = await Promise.all([
+      runWithModelFallback(corePrompt as string, false),
+      runWithModelFallback(artifactsPrompt as string, false),
+    ])
+
+    const response = corePayload.response
+    const coreModel = corePayload.modelUsed
+    const artifactsModel = artifactsPayload.modelUsed
+    const modelUsed = coreModel === artifactsModel ? coreModel : `${coreModel} + ${artifactsModel}`
     
     if (!response) {
       const error = new Error("Empty response from LLM")
@@ -621,164 +811,19 @@ Keep each value concise. Do NOT use newlines inside string values. Return ONLY v
       throw error
     }
 
-    // Handle already-parsed object responses defensively.
-    if (typeof response === "object" && response !== null) {
-      let parsedResult = response as unknown as MarketingResult
-      
-      // Validate that it has the expected shape
-      if (!parsedResult.marketingCopy && !parsedResult.visualStrategy && !parsedResult.targetAudience) {
-        console.warn("Object response missing expected fields, keys:", Object.keys(parsedResult))
-        // Try to extract from nested structure if LLM wrapped it
-        const responseObj = response as Record<string, unknown>
-        const keys = Object.keys(responseObj)
-        if (keys.length === 1 && typeof responseObj[keys[0]] === "object") {
-          const nested = responseObj[keys[0]] as MarketingResult
-          if (nested.marketingCopy || nested.visualStrategy) {
-            return { result: nested, modelUsed }
-          }
-        }
+    const parsedCore = parseEmbeddedObject(response)
+    const parsedArtifacts = parseEmbeddedObject(artifactsPayload.response) || {}
 
-        if (typeof responseObj.text === "string") {
-          const nestedFromText = parseEmbeddedJsonString(responseObj.text)
-          if (nestedFromText?.marketingCopy || nestedFromText?.visualStrategy) {
-            parsedResult = nestedFromText
-          }
-        }
-      }
-
-      if (isMockFallbackResult(parsedResult)) {
-        const error = new Error("Mock fallback output detected. Real provider output unavailable.")
-        await logError("Mock fallback output blocked", error, "generation", "high", user?.id, {
-          attemptNumber,
-          mode: "object-response",
-        })
-        throw error
-      }
-      
-      return { result: parsedResult, modelUsed }
-    }
-
-    let cleanedResponse = response.trim()
-    
-    if (cleanedResponse.startsWith("```json")) {
-      cleanedResponse = cleanedResponse.replace(/^```json\s*/, "").replace(/```\s*$/, "")
-    } else if (cleanedResponse.startsWith("```")) {
-      cleanedResponse = cleanedResponse.replace(/^```\s*/, "").replace(/```\s*$/, "")
-    }
-    
-    cleanedResponse = cleanedResponse.trim()
-    
-    const firstBrace = cleanedResponse.indexOf('{')
-    const lastBrace = cleanedResponse.lastIndexOf('}')
-    
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1)
-    }
-    
-    cleanedResponse = cleanedResponse
-      .replace(/[\u2018\u2019]/g, "'")
-      .replace(/[\u201C\u201D]/g, '"')
-      .replace(/\u2013/g, '-')
-      .replace(/\u2014/g, '--')
-      .replace(/\u2026/g, '...')
-    
-    console.log(`Attempt ${attemptNumber} - Response length:`, cleanedResponse.length)
-    console.log(`Attempt ${attemptNumber} - First 300 chars:`, cleanedResponse.substring(0, 300))
-    console.log(`Attempt ${attemptNumber} - Last 300 chars:`, cleanedResponse.substring(Math.max(0, cleanedResponse.length - 300)))
-    
-    let parsedResult!: MarketingResult
-    
-    try {
-      parsedResult = JSON.parse(cleanedResponse) as MarketingResult
-    } catch (parseError) {
-      console.error(`Attempt ${attemptNumber} - JSON parse failed, trying repair...`)
-      
-      // Attempt to repair common JSON issues
-      const repairAttempts: string[] = []
-      
-      // Step 1: Basic cleanup
-      const repaired = cleanedResponse
-        .replace(/,\s*}/g, '}')
-        .replace(/,\s*]/g, ']')
-        // eslint-disable-next-line no-control-regex
-        .replace(/[\x00-\x1F\x7F]/g, (ch) => ch === '\n' || ch === '\r' || ch === '\t' ? ' ' : '')
-      repairAttempts.push(repaired)
-      
-      // Step 2: Handle truncated response — close unterminated strings and braces
-      if (!repaired.endsWith('}')) {
-        let truncated = repaired
-        // If we're inside a string value (odd number of unescaped quotes), close it
-        const quoteCount = (truncated.match(/(?<!\\)"/g) || []).length
-        if (quoteCount % 2 !== 0) {
-          truncated += '"'
-        }
-        // Close any open braces
-        const openBraces = (truncated.match(/{/g) || []).length
-        const closeBraces = (truncated.match(/}/g) || []).length
-        for (let i = 0; i < openBraces - closeBraces; i++) {
-          truncated += '}'
-        }
-        repairAttempts.push(truncated)
-      }
-      
-      let repairSucceeded = false
-      for (const attempt of repairAttempts) {
-        try {
-          parsedResult = JSON.parse(attempt) as MarketingResult
-          console.log(`Attempt ${attemptNumber} - JSON repair succeeded`)
-          repairSucceeded = true
-          break
-        } catch {
-          // Try next repair attempt
-        }
-      }
-      
-      if (!repairSucceeded) {
-        console.error(`Attempt ${attemptNumber} - All JSON repairs failed`)
-        
-        await logError(
-          "JSON parse error in LLM response",
-          parseError instanceof Error ? parseError : new Error(String(parseError)),
-          "generation",
-          "high",
-          user?.id,
-          {
-            attemptNumber,
-            responseLength: cleanedResponse.length,
-            firstChars: cleanedResponse.substring(0, 200),
-            lastChars: cleanedResponse.substring(Math.max(0, cleanedResponse.length - 200)),
-          }
-        )
-        
-        throw parseError
-      }
-    }
-
-    if (
-      parsedResult &&
-      typeof parsedResult === "object" &&
-      !parsedResult.marketingCopy &&
-      !parsedResult.visualStrategy
-    ) {
-      const payloadText = (parsedResult as unknown as Record<string, unknown>).text
-      if (typeof payloadText === "string") {
-        const nestedFromText = parseEmbeddedJsonString(payloadText)
-        if (nestedFromText) {
-          parsedResult = nestedFromText
-        }
-      }
-    }
-    
-    console.log(`Attempt ${attemptNumber} - Successfully parsed with keys:`, Object.keys(parsedResult))
-
-    if (!parsedResult || typeof parsedResult !== 'object') {
+    if (!parsedCore || typeof parsedCore !== "object") {
       const error = new Error("Invalid response format - expected an object")
       await logError("Invalid LLM response format", error, "generation", "high", user?.id, {
         attemptNumber,
-        responseType: typeof parsedResult,
+        responseType: typeof parsedCore,
       })
       throw error
     }
+
+    const parsedResult = parsedCore as Partial<MarketingResult>
 
     if (!parsedResult.marketingCopy || !parsedResult.visualStrategy || !parsedResult.targetAudience) {
       const error = new Error(`Missing required fields. Got: ${Object.keys(parsedResult).join(', ')}`)
@@ -799,14 +844,37 @@ Keep each value concise. Do NOT use newlines inside string values. Return ONLY v
     }
 
     const normalizedResult: MarketingResult = {
-      marketingCopy: parsedResult.marketingCopy,
-      visualStrategy: parsedResult.visualStrategy,
-      targetAudience: parsedResult.targetAudience,
-      applicationWorkflow: parsedResult.applicationWorkflow || "Application workflow guidance was not generated. Please regenerate to get implementation steps.",
-      uiWorkflow: parsedResult.uiWorkflow || "UI workflow guidance was not generated. Please regenerate to get implementation steps.",
-      databaseWorkflow: parsedResult.databaseWorkflow || "Database workflow guidance was not generated. Please regenerate to get implementation steps.",
-      mobileWorkflow: parsedResult.mobileWorkflow || "Mobile workflow guidance was not generated. Please regenerate to get implementation steps.",
-      implementationChecklist: parsedResult.implementationChecklist || "Implementation checklist was not generated. Please regenerate to get sprint-ready tasks.",
+      marketingCopy: (parsedResult.marketingCopy || "").trim(),
+      visualStrategy: (parsedResult.visualStrategy || "").trim(),
+      targetAudience: (parsedResult.targetAudience || "").trim(),
+      applicationWorkflow: (parsedResult.applicationWorkflow || "Application workflow guidance was not generated. Please regenerate to get implementation steps.").trim(),
+      uiWorkflow: (parsedResult.uiWorkflow || "UI workflow guidance was not generated. Please regenerate to get implementation steps.").trim(),
+      databaseWorkflow: (parsedResult.databaseWorkflow || "Database workflow guidance was not generated. Please regenerate to get implementation steps.").trim(),
+      mobileWorkflow: (parsedResult.mobileWorkflow || "Mobile workflow guidance was not generated. Please regenerate to get implementation steps.").trim(),
+      implementationChecklist: (parsedResult.implementationChecklist || "Implementation checklist was not generated. Please regenerate to get sprint-ready tasks.").trim(),
+      visualIdentitySystem: pickText(
+        parsedArtifacts,
+        "visualIdentitySystem",
+        `${parsedResult.visualStrategy || "Visual guidance"}. Suggested palette: #0F766E, #EA580C, #1F2937. Font pair: Poppins + Source Sans 3. Logo placeholder: geometric mark + wordmark.`
+      ),
+      databaseStarterSchema: pickText(parsedArtifacts, "databaseStarterSchema", defaultSchema),
+      applicationFlowDiagram: pickText(parsedArtifacts, "applicationFlowDiagram", buildFallbackFlowDiagram("Application")),
+      uiFlowDiagram: pickText(parsedArtifacts, "uiFlowDiagram", buildFallbackFlowDiagram("UI Journey")),
+      mobileStarterPlan: pickText(
+        parsedArtifacts,
+        "mobileStarterPlan",
+        `${parsedResult.mobileWorkflow || "Start with a React Native client and Node API."} Include auth, shared API client, offline cache, and analytics events in sprint 1.`
+      ),
+      assetRecommendations: pickText(
+        parsedArtifacts,
+        "assetRecommendations",
+        "Prepare a prompt pack (audience, CTA, objection handling), SQL query snippets for dashboards, API test collection, and a reusable launch checklist."
+      ),
+      saveReadinessNotes: pickText(
+        parsedArtifacts,
+        "saveReadinessNotes",
+        "Before saving: validate KPI mapping, confirm owner per workflow phase, review schema relations, and verify mobile/API backlog alignment."
+      ),
     }
 
     return { result: normalizedResult, modelUsed }
@@ -825,7 +893,15 @@ Return ONLY valid JSON with this schema:
   "pass": true or false,
   "score": 0-100,
   "summary": "short summary",
-  "issues": ["issue 1", "issue 2"]
+  "issues": ["issue 1", "issue 2"],
+  "sectionScores": {
+    "marketingCopy": 0-100,
+    "visualStrategy": 0-100,
+    "targetAudience": 0-100,
+    "applicationWorkflow": 0-100,
+    "databaseWorkflow": 0-100,
+    "implementationChecklist": 0-100
+  }
 }
 
 Candidate JSON:
@@ -835,7 +911,22 @@ ${JSON.stringify(candidate)}`
 
     // Handle already-parsed object responses
     if (typeof response === "object" && response !== null) {
-      return response as unknown as StrategyQAVerdict
+      const direct = response as Record<string, unknown>
+      return {
+        pass: Boolean(direct.pass),
+        score: Math.max(0, Math.min(100, Number(direct.score || 0))),
+        summary: typeof direct.summary === "string" ? direct.summary : "Quality review completed.",
+        issues: Array.isArray(direct.issues) ? direct.issues.slice(0, 6).map(String) : [],
+        sectionScores:
+          direct.sectionScores && typeof direct.sectionScores === "object"
+            ? Object.fromEntries(
+                Object.entries(direct.sectionScores as Record<string, unknown>).map(([key, value]) => [
+                  key,
+                  Math.max(0, Math.min(100, Number(value || 0))),
+                ])
+              )
+            : undefined,
+      }
     }
 
     let cleaned = response.trim()
@@ -859,6 +950,15 @@ ${JSON.stringify(candidate)}`
         score: Math.max(0, Math.min(100, Number(parsed.score || 0))),
         summary: parsed.summary || "Quality review completed.",
         issues: Array.isArray(parsed.issues) ? parsed.issues.slice(0, 6) : [],
+        sectionScores:
+          parsed.sectionScores && typeof parsed.sectionScores === "object"
+            ? Object.fromEntries(
+                Object.entries(parsed.sectionScores).map(([key, value]) => [
+                  key,
+                  Math.max(0, Math.min(100, Number(value || 0))),
+                ])
+              )
+            : undefined,
       }
     } catch {
       const sections = [
@@ -883,6 +983,7 @@ ${JSON.stringify(candidate)}`
         issues: fallbackPass
           ? []
           : ["Retry generation with stricter structure and clearer implementation steps."],
+        sectionScores: undefined,
       }
     }
   }
@@ -899,7 +1000,7 @@ ${JSON.stringify(candidate)}`
 
     const memoryContext = buildMemoryContext()
     const estimatedInputTokens = estimatePromptTokens(`${description}\n${memoryContext}`)
-    const estimatedOutputTokens = strategyPlan === "pro" ? 2600 : 1900
+    const estimatedOutputTokens = strategyPlan === "pro" ? 3600 : 2600
     const estimatedCostCents = estimateGenerationCostCents(estimatedInputTokens, estimatedOutputTokens, strategyPlan)
     const projectedSpend = (monthlyStrategySpendCents || 0) + estimatedCostCents
 
@@ -963,12 +1064,27 @@ ${JSON.stringify(candidate)}`
           timestamp: Date.now(),
         })
 
-        if (qaVerdict.pass) {
+        const readinessVerdict = evaluateStrategyReadiness(generated.result, guidedBriefCompletion)
+        workflowSteps.push({
+          stage: "qa",
+          status: readinessVerdict.pass ? "pass" : "fail",
+          message: `Section readiness ${readinessVerdict.score}/100.${
+            readinessVerdict.blockers.length > 0 ? ` Blockers: ${readinessVerdict.blockers.join(" ")}` : ""
+          }`,
+          timestamp: Date.now(),
+        })
+
+        if (qaVerdict.pass && readinessVerdict.pass) {
           finalResult = generated.result
           break
         }
 
-        qaFeedback = qaVerdict.issues.join("; ") || qaVerdict.summary
+        const allIssues = [
+          ...qaVerdict.issues,
+          ...readinessVerdict.blockers,
+          ...readinessVerdict.recommendations,
+        ]
+        qaFeedback = allIssues.join("; ") || qaVerdict.summary
 
         if (attempt < maxRetries) {
           workflowSteps.push({
@@ -1112,6 +1228,7 @@ ${JSON.stringify(candidate)}`
 
   const handleNewGeneration = () => {
     setDescription("")
+    setGuidedBrief(EMPTY_GUIDED_BRIEF)
     setResult(null)
     setCurrentDescription("")
     setError(null)
@@ -1121,6 +1238,16 @@ ${JSON.stringify(candidate)}`
 
   const handleSaveStrategy = (name: string) => {
     if (!result || !currentDescription) return
+
+    const readiness = evaluateStrategyReadiness(result, guidedBriefCompletion)
+    if (!readiness.pass) {
+      toast.error(`Save blocked: ${readiness.blockers[0] || "Strategy quality gate failed."}`)
+      return
+    }
+
+    if (readiness.recommendations.length > 0) {
+      toast.info(readiness.recommendations[0])
+    }
 
     try {
       if (activeStrategyId) {
@@ -1441,6 +1568,11 @@ ${JSON.stringify(candidate)}`
   const handleProfileUpdate = (updatedUser: UserProfile) => {
     setUser(updatedUser)
   }
+
+  const resultReadiness = useMemo(() => {
+    if (!result) return null
+    return evaluateStrategyReadiness(result, guidedBriefCompletion)
+  }, [result, guidedBriefCompletion])
 
   const smartNextAction = useMemo(() => {
     if (!result) return null
@@ -2360,6 +2492,48 @@ ${JSON.stringify(candidate)}`
                   </p>
                 </div>
 
+                <div className="mb-4 rounded-lg border border-border/60 bg-card/60 p-4">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground">Guided Input Assistant</h3>
+                    <span className="text-xs text-muted-foreground">{guidedBriefCompletion}/6 fields completed</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Fill these checkpoints for more specific outputs across visual system, schema, workflow diagrams, and mobile starter plans.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Input
+                      value={guidedBrief.businessGoal}
+                      onChange={(event) => setGuidedBrief((current) => ({ ...current, businessGoal: event.target.value }))}
+                      placeholder="Business goal (e.g., reduce onboarding drop-off by 30%)"
+                    />
+                    <Input
+                      value={guidedBrief.primaryUsers}
+                      onChange={(event) => setGuidedBrief((current) => ({ ...current, primaryUsers: event.target.value }))}
+                      placeholder="Primary users (e.g., SME founders in MENA)"
+                    />
+                    <Input
+                      value={guidedBrief.differentiator}
+                      onChange={(event) => setGuidedBrief((current) => ({ ...current, differentiator: event.target.value }))}
+                      placeholder="Differentiator (what makes this solution unique?)"
+                    />
+                    <Input
+                      value={guidedBrief.monetization}
+                      onChange={(event) => setGuidedBrief((current) => ({ ...current, monetization: event.target.value }))}
+                      placeholder="Monetization model (subscription, transaction fee, etc.)"
+                    />
+                    <Input
+                      value={guidedBrief.techStack}
+                      onChange={(event) => setGuidedBrief((current) => ({ ...current, techStack: event.target.value }))}
+                      placeholder="Preferred stack (React, Node, Postgres, etc.)"
+                    />
+                    <Input
+                      value={guidedBrief.constraints}
+                      onChange={(event) => setGuidedBrief((current) => ({ ...current, constraints: event.target.value }))}
+                      placeholder="Constraints (timeline, team size, compliance, budget)"
+                    />
+                  </div>
+                </div>
+
                 <div className="mb-4 rounded-lg border border-border/60 bg-secondary/20 p-3">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                     <span className="font-semibold text-foreground">
@@ -2496,6 +2670,20 @@ ${JSON.stringify(candidate)}`
                       </div>
                     </div>
 
+                    {resultReadiness && (
+                      <div className={`rounded-xl border p-3 ${resultReadiness.pass ? "border-primary/30 bg-primary/5" : "border-destructive/30 bg-destructive/5"}`}>
+                        <p className="text-sm font-semibold text-foreground">
+                          Save Readiness Score: {resultReadiness.score}/100
+                        </p>
+                        {resultReadiness.blockers.length > 0 && (
+                          <p className="text-xs text-destructive mt-1">{resultReadiness.blockers[0]}</p>
+                        )}
+                        {resultReadiness.recommendations.length > 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">{resultReadiness.recommendations[0]}</p>
+                        )}
+                      </div>
+                    )}
+
                     {smartNextAction && (
                       <motion.div
                         initial={{ opacity: 0, y: 10 }}
@@ -2595,6 +2783,54 @@ ${JSON.stringify(candidate)}`
                           icon={<ListChecks size={24} weight="duotone" />}
                           content={result.implementationChecklist || "Implementation checklist not available."}
                           delay={0.7}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <h3 className="text-xl font-semibold text-foreground mb-4">Advanced Build Outputs</h3>
+                      <div className="space-y-6">
+                        <ResultCard
+                          title="Visual Identity System"
+                          icon={<Palette size={24} weight="duotone" />}
+                          content={result.visualIdentitySystem || "Visual identity system not available."}
+                          delay={0.8}
+                        />
+                        <ResultCard
+                          title="Application Workflow Diagram (Mermaid)"
+                          icon={<Code size={24} weight="duotone" />}
+                          content={result.applicationFlowDiagram || "Application workflow diagram not available."}
+                          delay={0.9}
+                        />
+                        <ResultCard
+                          title="UI Journey Diagram (Mermaid)"
+                          icon={<Desktop size={24} weight="duotone" />}
+                          content={result.uiFlowDiagram || "UI workflow diagram not available."}
+                          delay={1}
+                        />
+                        <ResultCard
+                          title="Database Starter Schema"
+                          icon={<Database size={24} weight="duotone" />}
+                          content={result.databaseStarterSchema || "Database starter schema not available."}
+                          delay={1.1}
+                        />
+                        <ResultCard
+                          title="Mobile Starter Plan"
+                          icon={<DeviceMobile size={24} weight="duotone" />}
+                          content={result.mobileStarterPlan || "Mobile starter plan not available."}
+                          delay={1.2}
+                        />
+                        <ResultCard
+                          title="Implementation Asset Pack"
+                          icon={<FolderOpen size={24} weight="duotone" />}
+                          content={result.assetRecommendations || "Asset recommendations not available."}
+                          delay={1.3}
+                        />
+                        <ResultCard
+                          title="Final Save Readiness Notes"
+                          icon={<ShieldCheck size={24} weight="duotone" />}
+                          content={result.saveReadinessNotes || "Save readiness notes not available."}
+                          delay={1.4}
                         />
                       </div>
                     </div>
